@@ -1,0 +1,81 @@
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: rgb(34, 34, 34);
+    /* background-image: url("./Assets/Style/trackpattern.png");
+    background-repeat: repeat;
+    background-size: 200px;
+    background-color: rgb(173, 173, 173);
+    animation: animateBackground 20s linear infinite; */
+}
+
+#placer {
+    display: grid;
+    place-items: center;
+    width: 100vw;
+    height: 100vh;
+}
+
+canvas {
+    width: 800px;
+    height: 800px;
+}
+
+#frame {
+    position: relative;
+    width: 800px;
+    height: 800px;
+
+}
+
+#frame img {
+    position: absolute;
+    top: -50px;
+    left: -50px;
+    pointer-events: none;
+}
+
+
+
+/* Instructions */
+#instructions {
+    position: absolute;
+    width: 1400px;
+    height: 900px;
+    pointer-events: none;
+    font-family: Arial, Helvetica, sans-serif;
+    display: grid;
+}
+
+#enter {
+    display: flex;
+    position: absolute;
+    bottom: 0px;
+    width: 100%;
+    height: 40px;
+    justify-content: space-evenly;
+    align-items: center;
+    text-align: center;
+}
+
+#enter div {
+    display: grid;
+    width: 320px;
+    height: 20px;
+    background-color: rgb(220, 220, 220);
+    border-radius: 5px;
+    align-items: center;
+}
+
+/* Animation for Background */
+@keyframes animateBackground {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: 200px 200px;
+    }
+}
