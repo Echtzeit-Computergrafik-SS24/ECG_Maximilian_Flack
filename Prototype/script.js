@@ -1,19 +1,3 @@
-// TODO: 
-// ------------------- Bis nächste Woche Dienstag -----------------------
-// Alle nötigen Objekte wie Bäume, Bahnhöfe etc. einfügen
-// Normal Maps + Shadow Mapping einfügen
-// ------------------- Bis übernächste Woche Freitag -----------------------
-// Neue Shader Einbauen: 
-// - Vielleicht einen Rauch Shader, der aus der Lokomotive kommt
-// - Vielleicht Cell Shading
-// - Vielleicht Gras Shader auf den Tiles
-// Vielleicht noch ein bisschen besseres Gameplay einfügen
-// Präsentation über ein Problem, welches auftauchte + eigene Shader Implementation
-
-
-
-
-
 // Boilerplate code ////////////////////////////////////////////////////////
 
 import * as glance from "../glance/js/index.js";
@@ -71,7 +55,7 @@ function onKeyUp(callback) {
 
 const fov = Math.PI / 4;
 const nearPlane = 0.4;
-const farPlane = 150;
+const farPlane = 200;
 let cameraFocus = new Vec3(0, 0, 0);
 const cameraSpeed = 0.007;
 const zoomSpeed = 0.25;
@@ -123,6 +107,8 @@ const groundPosArr = [
     new Vec3(16.5,0,27.5),
     new Vec3(27.5,0,27.5),
 ];
+const groundPosArrIds = Array.from({ length: groundPosArr.length }, (_, i) => i);
+
 // declare moving rules based on index position in groundPosArr 
 const middleTiles = [7,8,9,10,13,14,15,16,19,20,21,22,25,26,27,28];
 const upperRowTiles = [1,2,3,4];
@@ -133,6 +119,14 @@ const upperLeftCorner = [0];
 const upperRightCorner = [5];
 const lowerLeftCorner = [30];
 const lowerRightCorner = [35];
+
+// flatten groundPos Array because Shader can only take one-dimensional Arrays
+let groundPosArrFlat = [];
+for (var groundElement of groundPosArr) {
+    groundPosArrFlat.push(groundElement[0]);
+    groundPosArrFlat.push(groundElement[1]);
+    groundPosArrFlat.push(groundElement[2]);
+}
 
 function isAllowedToMove(direction) {
     if (currentTile === 4) {
@@ -193,7 +187,7 @@ onMouseWheel((e) => {
 
 const projectionMatrix = Mat4.perspective(fov, gl.canvas.width / gl.canvas.height, nearPlane, farPlane);
 
-let trainPos = new Vec3(-27.5,3,16.5);
+let trainPos = new Vec3(-27.5,1,16.5);
 let trainRotY = 0;
 let trainDestination = 24;
 let trainDestinationIndex = 0;
@@ -203,6 +197,7 @@ let currentTile = 24;
 let tilesSelected = [24];
 let blockedTiles = [2, 10, 18, 26];
 let trainStationTiles = [6, 23, 32];
+let allTrainStationTiles = [4, 6, 23, 24, 32];
 let fuelTiles = [8, 20, 35];
 let fuelCount = 8;
 
@@ -259,7 +254,7 @@ onKeyUp((e) => {
         currentTile = 24;
         tilesSelected = [];
         tilesSelected.push(24);
-        trainPos = new Vec3(-27.5,3,16.5);
+        trainPos = new Vec3(-27.5,1,16.5);
         trainRotY = 0;
         trainDestination = 24;
         trainDestinationIndex = 0;
@@ -361,39 +356,49 @@ const skyboxDrawCall = glance.createDrawCall(gl, skyboxShader, skyboxVAO, {
 // World Shaders
 // =====================================================================
 
-const worldVertexShader = `#version 300 es
+const groundInstanceVertexShader = `#version 300 es
     precision highp float;
 
-    uniform mat4 u_modelMatrix;
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
+    uniform vec3 u_groundArr[36];
 
+    in float a_instancePos;
     in vec3 a_pos;
     in vec3 a_normal;
     in vec2 a_texCoord;
 
-    out vec3 f_worldPos;
     out vec3 f_normal;
+    out vec3 f_worldPos;
     out vec2 f_texCoord;
 
+    mat4 buildTranslation(vec3 delta) {
+        return mat4(
+            vec4(1.0, 0.0, 0.0, 0.0),
+            vec4(0.0, 1.0, 0.0, 0.0),
+            vec4(0.0, 0.0, 1.0, 0.0),
+            vec4(delta, 1.0)
+        );
+    }
+
     void main() {
-        vec4 worldPosition = u_modelMatrix * vec4(a_pos, 1.0);
+        int id = int(a_instancePos);
+        mat4 iPos = buildTranslation(u_groundArr[id]);
+        vec4 worldPosition = iPos * vec4(a_pos, 1.0);
         f_worldPos = worldPosition.xyz;
-        f_normal = (u_modelMatrix * vec4(a_normal, 0.0)).xyz;
+        f_normal = (iPos * vec4(a_normal, 0.0)).xyz;
         f_texCoord = a_texCoord;
+        
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
     }
 `
-
-
-const worldFragmentShader = `#version 300 es
+const trackFragmentShader = `#version 300 es
     precision mediump float;
 
     uniform float u_ambient;
     uniform float u_specular;
     uniform float u_shininess;
     uniform vec3 u_lightDirection;
-    uniform vec3 u_color;
     uniform vec3 u_viewPos;
     uniform sampler2D u_texAmbient;
     uniform sampler2D u_texDiffuse;
@@ -427,11 +432,150 @@ const worldFragmentShader = `#version 300 es
         vec3 specular = (u_specular * specularIntensity) * texSpecular;
 
         // color
-        vec3 endColor = vec3(ambient + diffuse + specular) * u_color;
+        vec3 endColor = vec3(ambient + diffuse + specular);
         FragColor = vec4(endColor, 1.0);
     }
 `
-const worldShader = glance.createShader(gl, "world-shader", worldVertexShader, worldFragmentShader, {
+
+const instanceVertexShader = `#version 300 es
+    precision highp float;
+
+    uniform mat4 u_viewMatrix;
+    uniform mat4 u_projectionMatrix;
+    uniform vec3 u_groundArr[36];
+    // type of building that is being created 1=ground, 2=tree, 3=station, 4=fueltank, 5=track
+    uniform float u_type;
+
+    in float a_instancePos;
+    in vec3 a_pos;
+    in vec3 a_normal;
+    in vec2 a_texCoord;
+
+    out vec3 f_normal;
+    out vec3 f_worldPos;
+    out vec2 f_texCoord;
+
+    mat4 buildTranslation(vec3 delta) {
+        if (u_type == 1.0) {
+            return mat4(
+                vec4(1.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 1.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 1.0, 0.0),
+                vec4(delta, 1.0)
+            );
+        }
+        if (u_type == 2.0) {
+            return mat4(
+                vec4(1.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 1.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 1.0, 0.0),
+                vec4(delta.x, 0.5, delta.z, 1.0)
+            );
+        }
+        if (u_type == 3.0) {
+            return mat4(
+                vec4(0.6, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.8, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.6, 0.0),
+                vec4(delta.x, 1.0, delta.z, 1.0)
+            );
+        }
+        if (u_type == 4.0) {
+            return mat4(
+                vec4(0.6, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.8, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.6, 0.0),
+                vec4(delta.x, 1.0, delta.z, 1.0)
+            );
+        }
+        if (u_type == 5.0) {
+            return mat4(
+                vec4(2.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 2.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 2.0, 0.0),
+                vec4(delta.x, 0.5, delta.z, 1.0)
+            );
+        }
+    }
+
+    void main() {
+        int id = int(a_instancePos);
+        mat4 iPos = buildTranslation(u_groundArr[id]);
+        vec4 worldPosition = iPos * vec4(a_pos, 1.0);
+        f_worldPos = worldPosition.xyz;
+        f_normal = (iPos * vec4(a_normal, 0.0)).xyz;
+        f_texCoord = a_texCoord;
+        
+        gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
+    }
+`
+
+const trainVSSource = `#version 300 es
+    precision highp float;
+
+    uniform mat4 u_modelMatrix;
+    uniform mat4 u_viewMatrix;
+    uniform mat4 u_projectionMatrix;
+
+    in vec3 a_pos;
+    in vec3 a_normal;
+    in vec2 a_texCoord;
+
+    out vec3 f_normal;
+    out vec3 f_worldPos;
+    out vec2 f_texCoord;
+
+    void main() {
+        vec4 worldPosition = u_modelMatrix * vec4(a_pos, 1.0);
+        f_worldPos = worldPosition.xyz;
+        f_normal = (u_modelMatrix * vec4(a_normal, 0.0)).xyz;
+        f_texCoord = a_texCoord;
+        gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
+    }
+`;
+
+const trainFSSource = `#version 300 es
+    precision mediump float;
+
+    uniform vec3 u_viewPos;
+    uniform vec3 u_lightDirection;
+    uniform sampler2D u_texDiffuse;
+
+    in vec3 f_normal;
+    in vec3 f_worldPos;
+    in vec2 f_texCoord;
+
+    out vec4 o_fragColor;
+
+    void main() {
+        vec3 texDiffuse = texture(u_texDiffuse, f_texCoord).rgb;
+        vec3 normal = normalize(f_normal);
+        vec3 viewDirection = normalize(u_viewPos - f_worldPos);
+        vec3 halfWay = normalize(viewDirection + u_lightDirection);
+
+        vec3 ambient = 0.4 * texDiffuse;
+        float diffuseIntensity = max(0.0, dot(normal, u_lightDirection)) * 1.0;
+        vec3 diffuse = diffuseIntensity * texDiffuse;
+        float specular = pow(max(0.0, dot(normal, halfWay)), 64.0) * 1.0;
+
+        // color
+        vec3 endColor = vec3(ambient + diffuse + specular);
+        o_fragColor = vec4(endColor, 1.0);
+    }
+`;
+
+const trackShader = glance.createShader(gl, "world-shader", groundInstanceVertexShader, trackFragmentShader, {
+    // u_ambient: 0.1,
+    // u_diffuse: 0.9,
+    // u_specular: 0.15,
+    // u_shininess: 128,
+    // u_lightColor: [1, 1, 1],
+    // u_texDiffuse: 0,
+    // u_texSpecular: 1,
+    // u_texNormal: 2,
+    // u_texDepth: 3,
+    // u_lightDirection: lightDirection,
+    
     u_ambient: 0.1,
     u_specular: 0.6,
     u_shininess: 64,
@@ -442,26 +586,186 @@ const worldShader = glance.createShader(gl, "world-shader", worldVertexShader, w
     u_texSpecular: 2,
 });
 
+const worldObjectsShader = glance.createShader(gl, "world-objects-shader", instanceVertexShader, trainFSSource, {
+    u_lightDirection: lightDirection,
+    u_texDiffuse: 0,
+});
+
+const trainShader = glance.createShader(gl, "train-shader", trainVSSource, trainFSSource, {
+    u_lightDirection: lightDirection,
+    u_texDiffuse: 0,
+});
+
 // =====================================================================
-// World Object Creation + Draw Calls
+// World Objects
 // =====================================================================
 
-// tracks
+// Ground
+
+// const tracksGeo = glance.createPlane("tracks-geo", { width: 10, height: 10});
 const tracksGeo = glance.createBox("tracks-geo", { width: 10, height: 1, depth: 10,});
+
 const tracksIBO = glance.createIndexBuffer(gl, tracksGeo.indices);
 const tracksABO = glance.createAttributeBuffer(gl, "tracks-abo", {
     a_pos: { data: tracksGeo.positions, height: 3 },
     a_normal: { data: tracksGeo.normals, height: 3 },
     a_texCoord: { data: tracksGeo.texCoords, height: 2 },
+    // a_tangent: { data: tracksGeo.tangents, height: 3 },
 });
-const tracksVAO = glance.createVAO(gl, "tracks-vao", tracksIBO, glance.buildAttributeMap(worldShader, [tracksABO]));
+const tracksIABO = glance.createAttributeBuffer(gl, "tracks-iabo", {
+    a_instancePos: { data: groundPosArrIds, height: 1, divisor: 1 },
+});
 
-const tracksTextureAmbient = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/plywood_ao.jpg")
-const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/plywood_diff.jpg")
-const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/plywood_diff.jpg")
+const tracksVAO = glance.createVAO(gl, "tracks-vao", tracksIBO, glance.buildAttributeMap(trackShader, [tracksABO, tracksIABO]));
 
+// const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_diff_1k.png");
+// const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_ao_1k.png");
+// const tracksTextureNormal = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png");
+// const tracksTextureDepth = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_disp_1k.png");
 
-// train
+const tracksTextureAmbient = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_ao_1k.png")
+const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_diff_1k.png")
+const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png")
+
+const tracksDrawCall = glance.createDrawCall(gl, trackShader, tracksVAO, {
+    uniforms: {
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+        u_groundArr: () => groundPosArrFlat,
+
+    },
+    textures: [
+        // [0, tracksTextureDiffuse],
+        // [1, tracksTextureSpecular],
+        // [2, tracksTextureNormal],
+        // [3, tracksTextureDepth],
+        [0, tracksTextureAmbient],
+        [1, tracksTextureDiffuse],
+        [2, tracksTextureSpecular],
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+    instances: () => groundPosArrIds.length,
+    enabled: () => groundPosArrIds.length > 0,
+});
+
+// Trees
+
+const treeGeo = await glance.loadObj("Assets/OBJ/tree.obj");
+const treeIBO = glance.createIndexBuffer(gl, treeGeo.indices);
+const treeABO = glance.createAttributeBuffer(gl, "tree-abo", {
+    a_pos: { data: treeGeo.positions, height: 3 },
+    a_normal: { data: treeGeo.normals, height: 3 },
+    a_texCoord: { data: treeGeo.texCoords, height: 2 },
+});
+const treeIABO = glance.createAttributeBuffer(gl, "tree-iabo", {
+    a_instancePos: { data: blockedTiles, height: 1, divisor: 1 },
+});
+
+const treeVAO = glance.createVAO(gl, "tree-vao", treeIBO, glance.buildAttributeMap(worldObjectsShader, [treeABO, treeIABO]));
+
+const treeTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/tree.png");
+
+const treeDrawCall = glance.createDrawCall(gl, worldObjectsShader, treeVAO, {
+    uniforms: {
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+        u_groundArr: () => groundPosArrFlat,
+        u_type: () => 2,
+    },
+    textures: [
+        [0, treeTexture],
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+    instances: () => blockedTiles.length,
+    enabled: () => blockedTiles.length > 0,
+});
+
+// Train Stations
+
+const stationGeo = await glance.loadObj("Assets/OBJ/station.obj");
+const stationIBO = glance.createIndexBuffer(gl, stationGeo.indices);
+const stationABO = glance.createAttributeBuffer(gl, "station-abo", {
+    a_pos: { data: stationGeo.positions, height: 3 },
+    a_normal: { data: stationGeo.normals, height: 3 },
+    a_texCoord: { data: stationGeo.texCoords, height: 2 },
+});
+const stationIABO = glance.createAttributeBuffer(gl, "station-iabo", {
+    a_instancePos: { data: allTrainStationTiles, height: 1, divisor: 1 },
+});
+
+const stationVAO = glance.createVAO(gl, "station-vao", stationIBO, glance.buildAttributeMap(worldObjectsShader, [stationABO, stationIABO]));
+
+const stationTexture = glance.loadTexture(gl, 512, 512, "Assets/OBJ/wood.png");
+
+const stationDrawCall = glance.createDrawCall(gl, worldObjectsShader, stationVAO, {
+    uniforms: {
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+        u_groundArr: () => groundPosArrFlat,
+        u_type: () => 3,
+    },
+    textures: [
+        [0, stationTexture],
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+    instances: () => allTrainStationTiles.length,
+    enabled: () => allTrainStationTiles.length > 0,
+});
+
+// Fuel Stations
+
+const fuelGeo = await glance.loadObj("Assets/OBJ/tower.obj");
+const fuelIBO = glance.createIndexBuffer(gl, fuelGeo.indices);
+const fuelABO = glance.createAttributeBuffer(gl, "fuel-abo", {
+    a_pos: { data: fuelGeo.positions, height: 3 },
+    a_normal: { data: fuelGeo.normals, height: 3 },
+    a_texCoord: { data: fuelGeo.texCoords, height: 2 },
+});
+const fuelIABO = glance.createAttributeBuffer(gl, "fuel-iabo", {
+    a_instancePos: { data: fuelTiles, height: 1, divisor: 1 },
+});
+
+const fuelVAO = glance.createVAO(gl, "fuel-vao", fuelIBO, glance.buildAttributeMap(worldObjectsShader, [fuelABO, fuelIABO]));
+
+const fuelTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/tower.png");
+
+const fuelDrawCall = glance.createDrawCall(gl, worldObjectsShader, fuelVAO, {
+    uniforms: {
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+        u_groundArr: () => groundPosArrFlat,
+        u_type: () => 4,
+    },
+    textures: [
+        [0, fuelTexture],
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+    instances: () => fuelTiles.length,
+    enabled: () => fuelTiles.length > 0,
+});
+
+// Train Tracks
+
+const trainTrackGeo = await glance.loadObj("Assets/OBJ/track.obj");
+const trainTrackIBO = glance.createIndexBuffer(gl, trainTrackGeo.indices);
+const trainTrackABO = glance.createAttributeBuffer(gl, "trainTrack-abo", {
+    a_pos: { data: trainTrackGeo.positions, height: 3 },
+    a_normal: { data: trainTrackGeo.normals, height: 3 },
+    a_texCoord: { data: trainTrackGeo.texCoords, height: 2 },
+});
+
+const trainTrackTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/track.png");
+
+// Train Cars
+
 const trainGeo = await glance.loadObj("Assets/OBJ/Train.obj");
 const trainIBO = glance.createIndexBuffer(gl, trainGeo.indices);
 const trainABO = glance.createAttributeBuffer(gl, "train-abo", {
@@ -469,17 +773,17 @@ const trainABO = glance.createAttributeBuffer(gl, "train-abo", {
     a_normal: { data: trainGeo.normals, height: 3 },
     a_texCoord: { data: trainGeo.texCoords, height: 2 },
 });
-const trainVAO = glance.createVAO(gl, "train-vao", trainIBO, glance.buildAttributeMap(worldShader, [trainABO]));
+
+const trainVAO = glance.createVAO(gl, "train-vao", trainIBO, glance.buildAttributeMap(trainShader, [trainABO]));
 
 const trainTexture = glance.loadTexture(gl, 2048, 2048, "Assets/OBJ/TrainBake.png");
 
-const trainDrawCall = glance.createDrawCall(gl, worldShader, trainVAO, {
+const trainDrawCall = glance.createDrawCall(gl, trainShader, trainVAO, {
     uniforms: {
         u_modelMatrix: () => Mat4.fromTranslation(trainPos).rotateY(trainRotY),
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
-        u_color: () => new Vec3(1.0, 1.0, 1.0),
     },
     textures: [
         [0, trainTexture],
@@ -658,56 +962,36 @@ setRenderLoop((time) => {
     }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // TODO: Create tiles using instances
-    for (var [index, groundElement] of groundPosArr.entries()) {
-        const tracksDrawCall = glance.createDrawCall(gl, worldShader, tracksVAO, {
-            uniforms: {
-                u_modelMatrix: () => Mat4.fromTranslation(groundElement),
-                u_viewMatrix: () => viewMatrix,
-                u_projectionMatrix: () => projectionMatrix,
-                u_viewPos: () => viewPos,
-                // The ground color changes according to the start/end station + set tracks
-                u_color: () => {
-                    switch (index) {
-                        case 4: 
-                            if (tilesSelected.includes(index)) {
-                                if (trainStationTiles.every(v => tilesSelected.includes(v))) {
-                                    return new Vec3(0.2, 0.9, 0.2);
-                                }
-                                else {
-                                    return new Vec3(0.9, 0.6, 0.2);
-                                }
-                            }
-                            return new Vec3(0.0, 0.0, 0.0);
-                        case 24: return new Vec3(0.2, 0.9, 0.2);
-                        default:
-                            if (blockedTiles.includes(index)) {
-                                return new Vec3(1.0, 0.2, 0.2);
-                            }
-                            else if (fuelTiles.includes(index)) {
-                                return new Vec3(0.8, 0.8, 0.2);
-                            }
-                            else if (trainStationTiles.includes(index)) {
-                                return new Vec3(0.2, 0.2, 0.9);
-                            }
-                            else if (tilesSelected.includes(index)) {
-                                return new Vec3(0.5, 0.5, 0.2);
-                            }
-                            return new Vec3(1.0, 1.0, 1.0)
-                    }
-                },
-            },
-            textures: [
-                [0, tracksTextureAmbient],
-                [1, tracksTextureDiffuse],
-                [2, tracksTextureSpecular],
-            ],
-            cullFace: gl.BACK,
-            depthTest: gl.LESS,
-        });
-        glance.performDrawCall(gl, tracksDrawCall, time);
-    }
+
+    const trainTrackIABO = glance.createAttributeBuffer(gl, "trainTrack-iabo", {
+        a_instancePos: { data: tilesSelected, height: 1, divisor: 1 },
+    });
+    
+    const trainTrackVAO = glance.createVAO(gl, "trainTrack-vao", trainTrackIBO, glance.buildAttributeMap(worldObjectsShader, [trainTrackABO, trainTrackIABO]));
+    
+    const trainTrackDrawCall = glance.createDrawCall(gl, worldObjectsShader, trainTrackVAO, {
+        uniforms: {
+            u_viewMatrix: () => viewMatrix,
+            u_projectionMatrix: () => projectionMatrix,
+            u_viewPos: () => viewPos,
+            u_groundArr: () => groundPosArrFlat,
+            u_type: () => 5,
+        },
+        textures: [
+            [0, trainTrackTexture],
+        ],
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+        instances: () => tilesSelected.length,
+        enabled: () => tilesSelected.length > 0,
+    });
+
     glance.performDrawCall(gl, skyboxDrawCall, time);
+    glance.performDrawCall(gl, tracksDrawCall, time);
+    glance.performDrawCall(gl, treeDrawCall, time);
+    glance.performDrawCall(gl, stationDrawCall, time);
+    glance.performDrawCall(gl, fuelDrawCall, time);
+    glance.performDrawCall(gl, trainTrackDrawCall, time);
 
     if (isTrainDriving) {
         document.getElementById("fuel-counter-div").style.display = "none";
@@ -753,12 +1037,12 @@ setRenderLoop((time) => {
             }
         }
 
-        // if train has arrived at last selected tile, set game finished condition true
+        // if train has arrived at last selected tile, set game to finished
         if (groundPosArr[tilesSelected[tilesSelected.length-1]].equals(new Vec3(Math.round(trainPos.x * 10) /10, 0, Math.round(trainPos.z * 10) /10))) {
             gameFinished = true;
         }
 
-        trainPos.lerp(new Vec3(groundPosArr[trainDestination].x, 3, groundPosArr[trainDestination].z), deltaTime * trainSpeed);
+        trainPos.lerp(new Vec3(groundPosArr[trainDestination].x, 1, groundPosArr[trainDestination].z), deltaTime * trainSpeed);
         glance.performDrawCall(gl, trainDrawCall, time);
 
         cameraFocus = trainPos;
