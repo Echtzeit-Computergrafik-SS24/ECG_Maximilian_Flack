@@ -764,6 +764,34 @@ const trainTrackABO = glance.createAttributeBuffer(gl, "trainTrack-abo", {
 
 const trainTrackTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/track.png");
 
+// Goal Flag
+
+const flagGeo = await glance.loadObj("Assets/OBJ/flag.obj");
+const flagIBO = glance.createIndexBuffer(gl, flagGeo.indices);
+const flagABO = glance.createAttributeBuffer(gl, "flag-abo", {
+    a_pos: { data: flagGeo.positions, height: 3 },
+    a_normal: { data: flagGeo.normals, height: 3 },
+    a_texCoord: { data: flagGeo.texCoords, height: 2 },
+});
+
+const flagVAO = glance.createVAO(gl, "flag-vao", flagIBO, glance.buildAttributeMap(trainShader, [flagABO]));
+
+const flagTexture = glance.loadTexture(gl, 512, 512, "Assets/OBJ/tree.png");
+
+const flagDrawCall = glance.createDrawCall(gl, trainShader, flagVAO, {
+    uniforms: {
+        u_modelMatrix: ({time}) => Mat4.fromTranslation(new Vec3(20,0,-30)).scale((Math.cos(time/400) + 4)),
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+    },
+    textures: [
+        [0, flagTexture],
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+});
+
 // Train Cars
 
 const trainGeo = await glance.loadObj("Assets/OBJ/Train.obj");
@@ -992,6 +1020,7 @@ setRenderLoop((time) => {
     glance.performDrawCall(gl, stationDrawCall, time);
     glance.performDrawCall(gl, fuelDrawCall, time);
     glance.performDrawCall(gl, trainTrackDrawCall, time);
+    glance.performDrawCall(gl, flagDrawCall, time);
 
     if (isTrainDriving) {
         document.getElementById("fuel-counter-div").style.display = "none";
