@@ -195,16 +195,27 @@ let trainDestinationIndex = 0;
 /// The user can select the tiles around the current one with the arrow keys
 let currentTile = 24;
 let tilesSelected = [24];
+// Create array with a number of elements that are greater than the possibly laid down number of tiles so that in instancing, it doesn't have to take a new array but can change the values of this one
+let tilesSelectedPlacing = [24];
+for (let i = 1; i < groundPosArr.length; i++) {
+    tilesSelectedPlacing.push(-1);
+}
 let blockedTiles = [2, 10, 18, 26];
 let trainStationTiles = [6, 23, 32];
 let allTrainStationTiles = [4, 6, 23, 24, 32];
 let fuelTiles = [8, 20, 35];
 let fuelCount = 8;
 
-function updateFuel() {
+function updateFuelTracks() {
     fuelCount -= 1;
     if (fuelTiles.includes(currentTile)) {
         fuelCount += 7;
+    }
+
+    // update instance attribute from train tracks based on placed tiles
+    if (trainTrackIABO) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, trainTrackIABO.glObject);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(tilesSelectedPlacing));
     }
 }
 
@@ -213,9 +224,11 @@ onKeyUp((e) => {
         if (e.key === "ArrowUp") {
             if (isAllowedToMove("up")) {
                 if (!tilesSelected.includes(currentTile - 6) && !blockedTiles.includes(currentTile - 6)) {
+                    // update current Tile based on move direction, push to array and update instancing array
                     currentTile -= 6;
-                    updateFuel();
                     tilesSelected.push(currentTile);
+                    tilesSelectedPlacing[tilesSelected.length-1] = currentTile;
+                    updateFuelTracks();
                 }
             }
         }
@@ -223,8 +236,9 @@ onKeyUp((e) => {
             if (isAllowedToMove("down")) {
                 if (!tilesSelected.includes(currentTile + 6) && !blockedTiles.includes(currentTile + 6)) {
                     currentTile += 6;
-                    updateFuel();
                     tilesSelected.push(currentTile);
+                    tilesSelectedPlacing[tilesSelected.length-1] = currentTile;
+                    updateFuelTracks();
                 }
             }
         }
@@ -232,8 +246,9 @@ onKeyUp((e) => {
             if (isAllowedToMove("left")) {
                 if (!tilesSelected.includes(currentTile - 1) && !blockedTiles.includes(currentTile - 1)) {
                     currentTile -= 1;
-                    updateFuel();
                     tilesSelected.push(currentTile);
+                    tilesSelectedPlacing[tilesSelected.length-1] = currentTile;
+                    updateFuelTracks();
                 }
             }
         }
@@ -241,8 +256,9 @@ onKeyUp((e) => {
             if (isAllowedToMove("right")) {
                 if (!tilesSelected.includes(currentTile + 1) && !blockedTiles.includes(currentTile + 1)) {
                     currentTile += 1;
-                    updateFuel();
                     tilesSelected.push(currentTile);
+                    tilesSelectedPlacing[tilesSelected.length-1] = currentTile;
+                    updateFuelTracks();
                 }
             }
         }
@@ -254,6 +270,13 @@ onKeyUp((e) => {
         currentTile = 24;
         tilesSelected = [];
         tilesSelected.push(24);
+        tilesSelectedPlacing = [];
+        tilesSelectedPlacing.push(24);
+        for (let i = 1; i < groundPosArr.length; i++) {
+            tilesSelectedPlacing.push(-1);
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, trainTrackIABO.glObject);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(tilesSelectedPlacing));
         trainPos = new Vec3(-27.5,1,16.5);
         trainRotY = 0;
         trainDestination = 24;
@@ -489,12 +512,23 @@ const instanceVertexShader = `#version 300 es
             );
         }
         if (u_type == 5.0) {
-            return mat4(
-                vec4(2.0, 0.0, 0.0, 0.0),
-                vec4(0.0, 2.0, 0.0, 0.0),
-                vec4(0.0, 0.0, 2.0, 0.0),
-                vec4(delta.x, 0.5, delta.z, 1.0)
-            );
+            // because instancing array of the tracks has a lot of elements with the id -1, move those out of sight
+            if (a_instancePos == -1.0) {
+                return mat4(
+                    vec4(2.0, 0.0, 0.0, 0.0),
+                    vec4(0.0, 2.0, 0.0, 0.0),
+                    vec4(0.0, 0.0, 2.0, 0.0),
+                    vec4(delta.x, 400, delta.z, 1.0)
+                );
+            } 
+            else {
+                return mat4(
+                    vec4(2.0, 0.0, 0.0, 0.0),
+                    vec4(0.0, 2.0, 0.0, 0.0),
+                    vec4(0.0, 0.0, 2.0, 0.0),
+                    vec4(delta.x, 0.5, delta.z, 1.0)
+                );
+            }
         }
     }
 
@@ -764,6 +798,29 @@ const trainTrackABO = glance.createAttributeBuffer(gl, "trainTrack-abo", {
 
 const trainTrackTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/track.png");
 
+const trainTrackIABO = glance.createAttributeBuffer(gl, "trainTrack-iabo", {
+    a_instancePos: { data: tilesSelectedPlacing, height: 1, divisor: 1 },
+});
+
+const trainTrackVAO = glance.createVAO(gl, "trainTrack-vao", trainTrackIBO, glance.buildAttributeMap(worldObjectsShader, [trainTrackABO, trainTrackIABO]));
+
+const trainTrackDrawCall = glance.createDrawCall(gl, worldObjectsShader, trainTrackVAO, {
+    uniforms: {
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+        u_groundArr: () => groundPosArrFlat,
+        u_type: () => 5,
+    },
+    textures: [
+        [0, trainTrackTexture],
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+    instances: () => tilesSelectedPlacing.length,
+    enabled: () => tilesSelectedPlacing.length > 0,
+});
+
 // Goal Flag
 
 const flagGeo = await glance.loadObj("Assets/OBJ/flag.obj");
@@ -984,35 +1041,11 @@ setRenderLoop((time) => {
     const deltaTime = lastTime >= 0 ? time - lastTime : 0;
     lastTime = time;
 
-    // Render the user view + add Post Framebuffer if end is reached
+    // add Post Framebuffer if end is reached
     if (gameFinished) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
     }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-
-    const trainTrackIABO = glance.createAttributeBuffer(gl, "trainTrack-iabo", {
-        a_instancePos: { data: tilesSelected, height: 1, divisor: 1 },
-    });
-    
-    const trainTrackVAO = glance.createVAO(gl, "trainTrack-vao", trainTrackIBO, glance.buildAttributeMap(worldObjectsShader, [trainTrackABO, trainTrackIABO]));
-    
-    const trainTrackDrawCall = glance.createDrawCall(gl, worldObjectsShader, trainTrackVAO, {
-        uniforms: {
-            u_viewMatrix: () => viewMatrix,
-            u_projectionMatrix: () => projectionMatrix,
-            u_viewPos: () => viewPos,
-            u_groundArr: () => groundPosArrFlat,
-            u_type: () => 5,
-        },
-        textures: [
-            [0, trainTrackTexture],
-        ],
-        cullFace: gl.BACK,
-        depthTest: gl.LESS,
-        instances: () => tilesSelected.length,
-        enabled: () => tilesSelected.length > 0,
-    });
 
     glance.performDrawCall(gl, skyboxDrawCall, time);
     glance.performDrawCall(gl, tracksDrawCall, time);
