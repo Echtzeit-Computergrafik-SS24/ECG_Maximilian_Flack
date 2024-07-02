@@ -53,6 +53,11 @@ function onKeyUp(callback) {
 // Game Constants
 // =====================================================================
 
+// Globals
+const origin = Vec3.zero();
+const up = Vec3.yAxis();
+
+// Camera settings
 const fov = Math.PI / 4;
 const nearPlane = 0.4;
 const farPlane = 200;
@@ -61,7 +66,11 @@ const cameraSpeed = 0.007;
 const zoomSpeed = 0.25;
 const minZoom = 20;
 const maxZoom = 100;
-const lightDirection = new Vec3(-1, 1, -1).normalize();
+// Light settings
+const lightProjection = Mat4.ortho(-0.5, 0.5, -0.8, 0.95, 0.3, 4.1);
+const lightRotationSpeed = 0.0003;
+const lightTilt = 0.4;
+// Game settings
 const trainSpeed = 0.008;
 const groundPosArr = [
     // Upper Row
@@ -296,6 +305,10 @@ onKeyUp((e) => {
 const viewPos = Vec3.zero();
 const viewMatrix = Mat4.identity();
 
+// Variables for the light
+const lightPos = Vec3.zero();
+const lightXform = Mat4.identity();
+
 // =====================================================================
 // Skybox
 // =====================================================================
@@ -384,22 +397,27 @@ const groundInstanceVertexShader = `#version 300 es
 
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
+    uniform vec3 u_viewPos;
+    uniform vec3 u_lightPosition;
     uniform vec3 u_groundArr[36];
 
     in float a_instancePos;
     in vec3 a_pos;
     in vec3 a_normal;
     in vec2 a_texCoord;
+    in vec3 a_tangent;
 
-    out vec3 f_normal;
     out vec3 f_worldPos;
+    out vec3 f_viewPos;
+    out vec3 f_lightPos;
     out vec2 f_texCoord;
 
     mat4 buildTranslation(vec3 delta) {
+        const float PI_2 = 1.57079632679489661923;
         return mat4(
-            vec4(1.0, 0.0, 0.0, 0.0),
-            vec4(0.0, 1.0, 0.0, 0.0),
-            vec4(0.0, 0.0, 1.0, 0.0),
+            vec4(0.8, 0.0, 0.0, 0.0),
+            vec4(0.0, cos(PI_2), -sin(PI_2), 0.0),
+            vec4(0.0, sin(PI_2), cos(PI_2), 0.0),
             vec4(delta, 1.0)
         );
     }
@@ -407,11 +425,21 @@ const groundInstanceVertexShader = `#version 300 es
     void main() {
         int id = int(a_instancePos);
         mat4 iPos = buildTranslation(u_groundArr[id]);
-        vec4 worldPosition = iPos * vec4(a_pos, 1.0);
-        f_worldPos = worldPosition.xyz;
-        f_normal = (iPos * vec4(a_normal, 0.0)).xyz;
-        f_texCoord = a_texCoord;
         
+        vec3 normal = (iPos * vec4(a_normal, 0.0)).xyz;
+        vec3 tangent = (iPos * vec4(a_tangent, 0.0)).xyz;
+        vec3 bitangent = cross(normal, tangent);
+        mat3 worldToTangent = transpose(mat3(tangent, bitangent, normal));
+
+        vec4 worldPosition = iPos * vec4(a_pos, 1.0);
+        
+        // Transform world space coords to tangent space
+        f_worldPos = worldToTangent * worldPosition.xyz;
+        f_viewPos = worldToTangent * u_viewPos;
+        f_lightPos = worldToTangent * u_lightPosition;
+
+        f_texCoord = a_texCoord;
+
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
     }
 `
@@ -419,40 +447,81 @@ const trackFragmentShader = `#version 300 es
     precision mediump float;
 
     uniform float u_ambient;
+    uniform float u_diffuse;
     uniform float u_specular;
     uniform float u_shininess;
-    uniform vec3 u_lightDirection;
-    uniform vec3 u_viewPos;
-    uniform sampler2D u_texAmbient;
+    uniform vec3 u_lightColor;
     uniform sampler2D u_texDiffuse;
     uniform sampler2D u_texSpecular;
+    uniform sampler2D u_texNormal;
+    uniform sampler2D u_texDepth;
 
     in vec3 f_worldPos;
-    in vec3 f_normal;
+    in vec3 f_viewPos;
+    in vec3 f_lightPos;
     in vec2 f_texCoord;
 
     out vec4 FragColor;
 
+    const float parallaxScale = 0.04;
+    const float minLayers = 16.0;
+    const float maxLayers = 64.0;
+
+    vec2 parallax_mapping(vec3 viewDir) {
+        float numLayers = mix(maxLayers, minLayers, smoothstep(0.0, 1.0, max(dot(vec3(0.0, 0.0, 1.0), viewDir), 0.0)));
+        vec2 texCoordsDelta   = (viewDir.xy * parallaxScale) / (viewDir.z * numLayers);
+
+        vec2  currentTexCoords     = f_texCoord;
+        float currentDepthMapValue = 1.0 - texture(u_texDepth, currentTexCoords).r;
+        float prevDepthMapValue    = currentDepthMapValue;
+
+        float i = 0.0;
+        for(;i / numLayers < currentDepthMapValue; i += 1.0)
+        {
+            prevDepthMapValue    = currentDepthMapValue;
+            currentTexCoords    -= texCoordsDelta;
+            currentDepthMapValue = 1.0 - texture(u_texDepth, currentTexCoords).r;
+        }
+
+        // get depth after and before collision for linear interpolation
+        float afterDepth  = currentDepthMapValue - i / numLayers;
+        float beforeDepth = prevDepthMapValue - max(i - 1.0, 0.0) / numLayers;
+
+        float fraction = afterDepth / (afterDepth - beforeDepth);
+        return currentTexCoords + (texCoordsDelta * fraction);
+    }
+
     void main() {
+        // parallax
+        vec3 viewDir = normalize(f_viewPos - f_worldPos);
+        vec2 texCoord = parallax_mapping(viewDir);
+        if(texCoord.x > 1.0
+            || texCoord.y > 1.0
+            || texCoord.x < 0.0
+            || texCoord.y < 0.0) {
+            discard;
+        }
 
         // texture
-        vec3 texAmbient = texture(u_texAmbient, f_texCoord).rgb;
-        vec3 texDiffuse = texture(u_texDiffuse, f_texCoord).rgb;
-        vec3 texSpecular = texture(u_texSpecular, f_texCoord).rgb;
+        vec3 texDiffuse = texture(u_texDiffuse, texCoord).rgb;
+        vec3 texSpecular = texture(u_texSpecular, texCoord).rgb;
+        vec3 texNormal = texture(u_texNormal, texCoord).rgb;
+
+        // lighting
+        vec3 normal = normalize(texNormal * (255./128.) - 1.0);
+        vec3 lightDir = normalize(f_lightPos - f_worldPos);
+        vec3 halfWay = normalize(viewDir + lightDir);
 
         // ambient
-        vec3 ambient = max(vec3(u_ambient), texAmbient) * texDiffuse;
+        vec3 ambient = texDiffuse * u_ambient;
 
         // diffuse
-        vec3 normal = normalize(f_normal);
-        float diffuseIntensity = max(dot(normal, u_lightDirection), 0.0);
-        vec3 diffuse = diffuseIntensity * texDiffuse;
+        float diffuseIntensity = max(dot(normal, lightDir), 0.0);
+        vec3 diffuse = texDiffuse * texSpecular * diffuseIntensity * u_lightColor * u_diffuse;
 
         // specular
-        vec3 viewDir = normalize(u_viewPos - f_worldPos);
-        vec3 halfWay = normalize(u_lightDirection + viewDir);
         float specularIntensity = pow(max(dot(normal, halfWay), 0.0), u_shininess);
-        vec3 specular = (u_specular * specularIntensity) * texSpecular;
+        vec3 specular = texSpecular * specularIntensity * u_lightColor * u_specular;
 
         // color
         vec3 endColor = vec3(ambient + diffuse + specular);
@@ -465,6 +534,7 @@ const instanceVertexShader = `#version 300 es
 
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
+    uniform vec3 u_lightPosition;
     uniform vec3 u_groundArr[36];
     // type of building that is being created 1=ground, 2=tree, 3=station, 4=fueltank, 5=track
     uniform float u_type;
@@ -477,6 +547,7 @@ const instanceVertexShader = `#version 300 es
     out vec3 f_normal;
     out vec3 f_worldPos;
     out vec2 f_texCoord;
+    out vec3 f_lightDir;
 
     mat4 buildTranslation(vec3 delta) {
         if (u_type == 1.0) {
@@ -539,6 +610,7 @@ const instanceVertexShader = `#version 300 es
         f_worldPos = worldPosition.xyz;
         f_normal = (iPos * vec4(a_normal, 0.0)).xyz;
         f_texCoord = a_texCoord;
+        f_lightDir = normalize(u_lightPosition);
         
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
     }
@@ -550,6 +622,7 @@ const trainVSSource = `#version 300 es
     uniform mat4 u_modelMatrix;
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
+    uniform vec3 u_lightPosition;
 
     in vec3 a_pos;
     in vec3 a_normal;
@@ -558,12 +631,15 @@ const trainVSSource = `#version 300 es
     out vec3 f_normal;
     out vec3 f_worldPos;
     out vec2 f_texCoord;
+    out vec3 f_lightDir;
 
     void main() {
         vec4 worldPosition = u_modelMatrix * vec4(a_pos, 1.0);
         f_worldPos = worldPosition.xyz;
         f_normal = (u_modelMatrix * vec4(a_normal, 0.0)).xyz;
         f_texCoord = a_texCoord;
+        f_lightDir = normalize(u_lightPosition);
+
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
     }
 `;
@@ -572,12 +648,12 @@ const trainFSSource = `#version 300 es
     precision mediump float;
 
     uniform vec3 u_viewPos;
-    uniform vec3 u_lightDirection;
     uniform sampler2D u_texDiffuse;
 
     in vec3 f_normal;
     in vec3 f_worldPos;
     in vec2 f_texCoord;
+    in vec3 f_lightDir;
 
     out vec4 o_fragColor;
 
@@ -585,10 +661,10 @@ const trainFSSource = `#version 300 es
         vec3 texDiffuse = texture(u_texDiffuse, f_texCoord).rgb;
         vec3 normal = normalize(f_normal);
         vec3 viewDirection = normalize(u_viewPos - f_worldPos);
-        vec3 halfWay = normalize(viewDirection + u_lightDirection);
+        vec3 halfWay = normalize(viewDirection + f_lightDir);
 
         vec3 ambient = 0.4 * texDiffuse;
-        float diffuseIntensity = max(0.0, dot(normal, u_lightDirection)) * 1.0;
+        float diffuseIntensity = max(0.0, dot(normal, f_lightDir)) * 1.0;
         vec3 diffuse = diffuseIntensity * texDiffuse;
         float specular = pow(max(0.0, dot(normal, halfWay)), 64.0) * 1.0;
 
@@ -599,34 +675,22 @@ const trainFSSource = `#version 300 es
 `;
 
 const trackShader = glance.createShader(gl, "world-shader", groundInstanceVertexShader, trackFragmentShader, {
-    // u_ambient: 0.1,
-    // u_diffuse: 0.9,
-    // u_specular: 0.15,
-    // u_shininess: 128,
-    // u_lightColor: [1, 1, 1],
-    // u_texDiffuse: 0,
-    // u_texSpecular: 1,
-    // u_texNormal: 2,
-    // u_texDepth: 3,
-    // u_lightDirection: lightDirection,
-    
-    u_ambient: 0.1,
-    u_specular: 0.6,
-    u_shininess: 64,
-    u_lightDirection: lightDirection,
-    u_projectionMatrix: projectionMatrix,
-    u_texAmbient: 0,
-    u_texDiffuse: 1,
-    u_texSpecular: 2,
+    u_ambient: 0.2,
+    u_diffuse: 0.9,
+    u_specular: 0.4,
+    u_shininess: 128,
+    u_lightColor: [1, 1, 1],
+    u_texDiffuse: 0,
+    u_texSpecular: 1,
+    u_texNormal: 2,
+    u_texDepth: 3,
 });
 
 const worldObjectsShader = glance.createShader(gl, "world-objects-shader", instanceVertexShader, trainFSSource, {
-    u_lightDirection: lightDirection,
     u_texDiffuse: 0,
 });
 
 const trainShader = glance.createShader(gl, "train-shader", trainVSSource, trainFSSource, {
-    u_lightDirection: lightDirection,
     u_texDiffuse: 0,
 });
 
@@ -636,15 +700,14 @@ const trainShader = glance.createShader(gl, "train-shader", trainVSSource, train
 
 // Ground
 
-// const tracksGeo = glance.createPlane("tracks-geo", { width: 10, height: 10});
-const tracksGeo = glance.createBox("tracks-geo", { width: 10, height: 1, depth: 10,});
+const tracksGeo = glance.createPlane("tracks-geo", { width: 6, height: 5});
 
 const tracksIBO = glance.createIndexBuffer(gl, tracksGeo.indices);
 const tracksABO = glance.createAttributeBuffer(gl, "tracks-abo", {
     a_pos: { data: tracksGeo.positions, height: 3 },
     a_normal: { data: tracksGeo.normals, height: 3 },
     a_texCoord: { data: tracksGeo.texCoords, height: 2 },
-    // a_tangent: { data: tracksGeo.tangents, height: 3 },
+    a_tangent: { data: tracksGeo.tangents, height: 3 },
 });
 const tracksIABO = glance.createAttributeBuffer(gl, "tracks-iabo", {
     a_instancePos: { data: groundPosArrIds, height: 1, divisor: 1 },
@@ -657,26 +720,25 @@ const tracksVAO = glance.createVAO(gl, "tracks-vao", tracksIBO, glance.buildAttr
 // const tracksTextureNormal = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png");
 // const tracksTextureDepth = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_disp_1k.png");
 
-const tracksTextureAmbient = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_ao_1k.png")
-const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_diff_1k.png")
-const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png")
+const tracksTextureDiffuse = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-albedo.webp");
+const tracksTextureSpecular = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-ao.webp");
+const tracksTextureNormal = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-normal.webp");
+const tracksTextureDepth = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-depth.webp");
 
 const tracksDrawCall = glance.createDrawCall(gl, trackShader, tracksVAO, {
     uniforms: {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
         u_groundArr: () => groundPosArrFlat,
 
     },
     textures: [
-        // [0, tracksTextureDiffuse],
-        // [1, tracksTextureSpecular],
-        // [2, tracksTextureNormal],
-        // [3, tracksTextureDepth],
-        [0, tracksTextureAmbient],
-        [1, tracksTextureDiffuse],
-        [2, tracksTextureSpecular],
+        [0, tracksTextureDiffuse],
+        [1, tracksTextureSpecular],
+        [2, tracksTextureNormal],
+        [3, tracksTextureDepth],
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -706,6 +768,7 @@ const treeDrawCall = glance.createDrawCall(gl, worldObjectsShader, treeVAO, {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 2,
     },
@@ -740,6 +803,7 @@ const stationDrawCall = glance.createDrawCall(gl, worldObjectsShader, stationVAO
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 3,
     },
@@ -774,6 +838,7 @@ const fuelDrawCall = glance.createDrawCall(gl, worldObjectsShader, fuelVAO, {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 4,
     },
@@ -809,6 +874,7 @@ const trainTrackDrawCall = glance.createDrawCall(gl, worldObjectsShader, trainTr
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 5,
     },
@@ -841,6 +907,7 @@ const flagDrawCall = glance.createDrawCall(gl, trainShader, flagVAO, {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
     },
     textures: [
         [0, flagTexture],
@@ -869,6 +936,7 @@ const trainDrawCall = glance.createDrawCall(gl, trainShader, trainVAO, {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
     },
     textures: [
         [0, trainTexture],
@@ -1041,8 +1109,15 @@ setRenderLoop((time) => {
     const deltaTime = lastTime >= 0 ? time - lastTime : 0;
     lastTime = time;
 
+    // Update the light
+    lightPos
+        .set(0, 0, -1)
+        .rotateX(lightTilt)
+        .rotateY(time * lightRotationSpeed);
+    lightXform.lookAt(lightPos, origin, up);
+
     // add Post Framebuffer if end is reached
-    if (gameFinished) {
+    if (gameFinished && 1==2) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
     }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1118,7 +1193,7 @@ setRenderLoop((time) => {
     // update the fuelcount
     document.getElementById("fuel-counter-span").textContent = fuelCount;
 
-    if (gameFinished) {
+    if (gameFinished && 1==2) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         gl.clear(gl.COLOR_BUFFER_BIT);
