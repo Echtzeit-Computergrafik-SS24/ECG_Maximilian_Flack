@@ -162,6 +162,7 @@ export class Mat3
     }
 
     /// Get the value of the given component.
+    [index: number]: number;
     get 0(): number { return this.a; }
     get 1(): number { return this.b; }
     get 2(): number { return this.c; }
@@ -171,6 +172,7 @@ export class Mat3
     get 6(): number { return this.g; }
     get 7(): number { return this.h; }
     get 8(): number { return this.i; }
+    get length(): number { return 9; }
 
     /// Resets this Mat3 to the identity matrix.
     public reset(): Mat3

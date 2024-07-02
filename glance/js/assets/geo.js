@@ -1,4 +1,4 @@
-export { createBox, createPlane, createScreenQuat, createSphere, createTorusKnot, getBaricentricCoordinates, loadObj, uniquifyVertices, };
+export { createBox, createCircularPlane, createPlane, createScreenQuat, createSphere, createTorusKnot, getBaricentricCoordinates, loadObj, uniquifyVertices, };
 import { EPSILON, Mat3, Vec2, Vec3, Quat, } from "../math/index.js";
 import { assert, logInfo, logWarning, throwError, } from "../dev.js";
 // =============================================================================
@@ -48,6 +48,57 @@ function createPlane(name, options = {}) {
             texCoord.y = v;
             texCoord.applyMat3(textureXform);
             texCoords.push(texCoord.x, texCoord.y);
+        }
+    }
+    return {
+        name,
+        positions,
+        indices,
+        texCoords,
+        normals,
+        tangents,
+    };
+}
+/// Create a 3D Circular Plane geometry, spanning the XY plane.
+/// @param name Name of the geometry.
+/// @param radius Radius of the circular plane, default: 1.
+/// @param segments Number of segments around the perimeter of the circle, default: 32.
+/// @param internalSegments Number of internal segments, default: 1.
+/// @returns
+function createCircularPlane(name, options = {}) {
+    // Validate the arguments.
+    const radius = Math.abs(options.radius ?? 1);
+    const segments = Math.max(Math.round(options.segments ?? 32), 3);
+    const internalSegments = Math.max(Math.round(options.internalSegments ?? 1), 1);
+    // Initialize the arrays.
+    const positions = new Array();
+    const indices = new Array();
+    const texCoords = new Array();
+    const normals = new Array();
+    const tangents = new Array();
+    for (let i = 0; i <= internalSegments; i++) {
+        const r = radius * (i / internalSegments);
+        for (let j = 0; j <= segments; j++) {
+            const theta = 2 * Math.PI * (j / segments);
+            const x = -r * Math.cos(theta);
+            const y = r * Math.sin(theta);
+            // positions
+            positions.push(x, y, 0);
+            // normals
+            normals.push(0, 0, 1);
+            // tangents
+            tangents.push(1, 0, 0);
+            // texture coordinates
+            texCoords.push((x / radius + 1) / 2, (y / radius + 1) / 2);
+            // indices
+            if (i < internalSegments && j < segments) {
+                const a = i * (segments + 1) + j;
+                const b = i * (segments + 1) + j + 1;
+                const c = (i + 1) * (segments + 1) + j + 1;
+                const d = (i + 1) * (segments + 1) + j;
+                indices.push(a, b, d);
+                indices.push(b, c, d);
+            }
         }
     }
     return {
@@ -372,7 +423,7 @@ function parseObj(text) {
         }
     }
     if (name === undefined) {
-        throwError(() => "No object name defined in OBJ file");
+        throwError(() => `No object name defined in OBJ file: "${text}"`);
     }
     if (normals.length === 0) {
         console.log(`Calculating normals for object "${name}"`);
@@ -427,8 +478,8 @@ function expandObj(objData, geometry) {
 /// @param path Location of the OBJ file.
 /// @returns The loaded Geometry.
 async function loadObj(path) {
-    // Load the OBJ file
-    const response = await fetch(path);
+    // Load the OBJ file (add proper CORS headers to load from other domains)
+    const response = await fetch(path, { mode: "cors", method: "GET", headers: { "Content-Type": "text/plain" } });
     const text = await response.text();
     // Parse the OBJ file
     const objData = parseObj(text);
@@ -510,36 +561,36 @@ function removeUnusedFaces(name, indices, positions) {
     // TODO: this does not seem to work.
     // See the poles of a sphere with radius 0.5, widthSegments: 64, heightSegments: 32
     return;
-    // Validate the arguments.
-    if (positions.length % 3 !== 0) {
-        throwError(() => `The positions array of "${name}" must have a length that is a multiple of 3, but it is ${positions.length}.`);
-    }
-    if (indices.length % 3 !== 0) {
-        throwError(() => `The indices array of "${name}" must have a length that is a multiple of 3, but it is ${indices.length}.`);
-    }
-    // Go through all faces and check if they are degenerate.
-    const v0 = new Vec3();
-    const e1 = new Vec3();
-    const e2 = new Vec3();
-    const faceCountBefore = indices.length / 3;
-    for (let i = 0; i < indices.length;) {
-        // Edges of the face.
-        v0.fromArray(positions, indices[i] * 3);
-        e1.fromArray(positions, indices[i + 1] * 3).subtract(v0);
-        e2.fromArray(positions, indices[i + 2] * 3).subtract(v0);
-        // If the area of the face is zero, remove it.
-        if (e1.cross(e2).lengthSq() < EPSILON) {
-            indices.splice(i, 3);
-        }
-        // The face is valid, so move on to the next one.
-        else {
-            i += 3;
-        }
-    }
-    const facesRemoved = faceCountBefore - indices.length / 3;
-    if (facesRemoved > 0) {
-        logInfo(() => `Removed ${facesRemoved} degenerate faces from "${name}".`);
-    }
+    // // Validate the arguments.
+    // if (positions.length % 3 !== 0) {
+    //     throwError(() => `The positions array of "${name}" must have a length that is a multiple of 3, but it is ${positions.length}.`);
+    // }
+    // if (indices.length % 3 !== 0) {
+    //     throwError(() => `The indices array of "${name}" must have a length that is a multiple of 3, but it is ${indices.length}.`);
+    // }
+    // // Go through all faces and check if they are degenerate.
+    // const v0: Vec3 = new Vec3();
+    // const e1: Vec3 = new Vec3();
+    // const e2: Vec3 = new Vec3();
+    // const faceCountBefore = indices.length / 3;
+    // for (let i = 0; i < indices.length;) {
+    //     // Edges of the face.
+    //     v0.fromArray(positions, indices[i] * 3);
+    //     e1.fromArray(positions, indices[i + 1] * 3).subtract(v0);
+    //     e2.fromArray(positions, indices[i + 2] * 3).subtract(v0);
+    //     // If the area of the face is zero, remove it.
+    //     if (e1.cross(e2).lengthSq() < EPSILON) {
+    //         indices.splice(i, 3);
+    //     }
+    //     // The face is valid, so move on to the next one.
+    //     else {
+    //         i += 3;
+    //     }
+    // }
+    // const facesRemoved = faceCountBefore - indices.length / 3;
+    // if (facesRemoved > 0) {
+    //     logInfo(() => `Removed ${facesRemoved} degenerate faces from "${name}".`);
+    // }
 }
 /// Removes all vertices that are not referenced by any face.
 /// @param name Name of the modified geometry object.
@@ -770,7 +821,8 @@ function computeTangents(positions, texCoords, indices, normals) {
             tz -= dot * nz;
             const length = Math.hypot(tx, ty, tz);
             if (length === 0) {
-                logWarning(() => `Cannot generate tangent for vertex ${i / 3} because it is not part of a face.`);
+                // TODO: re-enable warning once the unused-vertex issue is fixed
+                // logWarning(() => `Cannot generate tangent for vertex ${i / 3} because it is not part of a face.`);
                 continue;
             }
             tangents[i] = tx / length;
@@ -782,7 +834,7 @@ function computeTangents(positions, texCoords, indices, normals) {
         for (let i = 0; i < tangents.length; i += 3) {
             const length = Math.hypot(tangents[i], tangents[i + 1], tangents[i + 2]);
             if (length === 0) {
-                logWarning(() => `Cannot generate tangent for vertex ${i / 3} because it is not part of a face.`);
+                // logWarning(() => `Cannot generate tangent for vertex ${i / 3} because it is not part of a face.`);
                 continue;
             }
             tangents[i] /= length;

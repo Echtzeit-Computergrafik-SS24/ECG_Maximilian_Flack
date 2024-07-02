@@ -26,6 +26,17 @@ export const enum AttributeDataType
     UNSIGNED_INT_2_10_10_10_REV = 0x8368,
 }
 
+/// All WebGL integer Attribute data types.
+/// https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext/vertexAttribIPointer#type
+export const INTEGER_TYPES: Array<AttributeDataType> = [
+    AttributeDataType.BYTE,
+    AttributeDataType.UNSIGNED_BYTE,
+    AttributeDataType.SHORT,
+    AttributeDataType.UNSIGNED_SHORT,
+    AttributeDataType.INT,
+    AttributeDataType.UNSIGNED_INT,
+];
+
 /// GLSL Attributes can be 1, 2, 3 or 4 dimensional.
 /// https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/vertexAttribPointer#size
 export type AttributeSize = 1 | 2 | 3 | 4;
@@ -161,7 +172,7 @@ export const enum TextureSrcDataType
     UNSIGNED_INT_10F_11F_11F_REV = 0x8C3B,
     UNSIGNED_INT_24_8 = 0x84FA,
     HALF_FLOAT = 0x140B,
-    FLOAT = 0x14,
+    FLOAT = 0x1406,
 }
 
 /// Valid values for the internalFormat parameter of texStorage2D and texStorage3D.
@@ -493,10 +504,19 @@ export type ShaderUniform = {
     /// The array size of the uniform (=1 if it is a scalar).
     readonly size: number,
 
-    /// The current value of the uniform.
-    value: UniformValue,
-    // TODO: rename to "lastValue", otherwise it's confusing and people try to modify it manually
-    // .. then again, maybe that's actually easier to reason about than the current system with callbacks?
+    /// The last value of the uniform.
+    /// This is used to avoid unnecessary updates.
+    lastValue: UniformValue,
+
+    /// The new value of the uniform, or null if it should not be updated.
+    value: UniformValue | null,
+    // TODO: you shouldn't update the value on the Shader, but only on the draw call!
+    // And I am pretty sure that this "lastValue" thing is not needed because the driver
+    // will avoid updating the uniform if the value is the same as the last time.
+    // The Draw call should be the only mutable store, all other objects should be immutable.
+    // TODO: In the same vein, remove all callbacks from the draw call an let the user
+    // update the values directly in the main loop. This is easier to reason about, more
+    // colocated in the code and probably more efficient as well.
 };
 
 // Shader Program =========================================================== //
@@ -657,7 +677,7 @@ export type DrawCall = {
     readonly depthTest: DepthTest,
 
     /// The blend function.
-    readonly blendFunc: [BlendFunc, BlendFunc],
+    readonly blendFunc: [BlendFunc, BlendFunc] | [BlendFunc, BlendFunc, BlendFunc, BlendFunc],
 
     /// The number of instances to draw.
     readonly instances: number | (() => number),

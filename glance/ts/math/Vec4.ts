@@ -47,14 +47,14 @@ export class Vec4
         return new Vec4(0, 0, 1);
     }
 
-    /// A random Vec4 with unit length and w set to 0.
+    /// A random Vec4 with unit magnitude and w set to 0.
     public static randomDir(): Vec4
     {
         const x = Math.random() * 2 - 1;
         const y = Math.random() * 2 - 1;
         const z = Math.random() * 2 - 1;
-        const length = Math.hypot(x, y, z);
-        return new Vec4(x / length, y / length, z / length, 0);
+        const mag = Math.hypot(x, y, z);
+        return new Vec4(x / mag, y / mag, z / mag, 0);
     }
 
     /// A Vec4 with x, y and z initialized from the given array at the given offset.
@@ -121,6 +121,7 @@ export class Vec4
     }
 
     /// Get the value of the given component.
+    [index: number]: number;
     get 0(): number { return this.x; }
     set 0(value: number) { this.x = value; }
     get 1(): number { return this.y; }
@@ -129,6 +130,7 @@ export class Vec4
     set 2(value: number) { this.z = value; }
     get 3(): number { return this.w; }
     set 3(value: number) { this.w = value; }
+    get length(): number { return 4; }
 
     /// Get the xyz part of this Vec4 as a Vec3.
     get xyz(): Vec3
@@ -209,6 +211,12 @@ export class Vec4
             Math.abs(this.y - other.y) <= epsilon &&
             Math.abs(this.z - other.z) <= epsilon &&
             Math.abs(this.w - other.w) <= epsilon);
+    }
+
+    /// Tests if any component is non-zero.
+    public any(): boolean
+    {
+        return this.x != 0 || this.y != 0 || this.z != 0 || this.w != 0;
     }
 
     /// Set this Vec4's x, y, z and w.
@@ -448,14 +456,14 @@ export class Vec4
         return this;
     }
 
-    /// Squared length of this.
-    public lengthSq(): number
+    /// Squared magnitude of this.
+    public magSq(): number
     {
         return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w;
     }
 
-    /// Length of this.
-    public length(): number
+    /// Magnitude (length) of this.
+    public magnitude(): number
     {
         return Math.hypot(this.x, this.y, this.z, this.w);
     }

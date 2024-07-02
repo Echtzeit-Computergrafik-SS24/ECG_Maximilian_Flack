@@ -67,9 +67,9 @@ const zoomSpeed = 0.25;
 const minZoom = 20;
 const maxZoom = 100;
 // Light settings
-const lightProjection = Mat4.ortho(-0.5, 0.5, -0.8, 0.95, 0.3, 4.1);
-const lightRotationSpeed = 0.0003;
-const lightTilt = 0.4;
+const lightProjection = Mat4.ortho(-50., 50., -50., 50., 1., 200.);
+const lightRotationSpeed = 0.0002;
+const lightTilt = 0.7;
 // Game settings
 const trainSpeed = 0.008;
 const groundPosArr = [
@@ -196,7 +196,7 @@ onMouseWheel((e) => {
 
 const projectionMatrix = Mat4.perspective(fov, gl.canvas.width / gl.canvas.height, nearPlane, farPlane);
 
-let trainPos = new Vec3(-27.5,1,16.5);
+let trainPos = new Vec3(-27.5,100,16.5);
 let trainRotY = 0;
 let trainDestination = 24;
 let trainDestinationIndex = 0;
@@ -286,7 +286,7 @@ onKeyUp((e) => {
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, trainTrackIABO.glObject);
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(tilesSelectedPlacing));
-        trainPos = new Vec3(-27.5,1,16.5);
+        trainPos = new Vec3(-27.5,100,16.5);
         trainRotY = 0;
         trainDestination = 24;
         trainDestinationIndex = 0;
@@ -307,7 +307,19 @@ const viewMatrix = Mat4.identity();
 
 // Variables for the light
 const lightPos = Vec3.zero();
+const lightParallaxPos = Vec3.zero();
 const lightXform = Mat4.identity();
+
+// =====================================================================
+// Shadow Depth Texture
+// =====================================================================
+
+const shadowDepthTexture = glance.createTexture(gl, "shadow-depth", 2048, 2048, gl.TEXTURE_2D, null, {
+    useAnisotropy: false,
+    internalFormat: gl.DEPTH_COMPONENT16,
+    levels: 1,
+    filter: gl.NEAREST,
+});
 
 // =====================================================================
 // Skybox
@@ -398,7 +410,9 @@ const groundInstanceVertexShader = `#version 300 es
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
     uniform vec3 u_viewPos;
+    uniform mat4 u_lightProjection;
     uniform vec3 u_lightPosition;
+    uniform mat4 u_lightXform;
     uniform vec3 u_groundArr[36];
 
     in float a_instancePos;
@@ -411,6 +425,7 @@ const groundInstanceVertexShader = `#version 300 es
     out vec3 f_viewPos;
     out vec3 f_lightPos;
     out vec2 f_texCoord;
+    out vec4 f_fragPosLS;
 
     mat4 buildTranslation(vec3 delta) {
         const float PI_2 = 1.57079632679489661923;
@@ -441,6 +456,7 @@ const groundInstanceVertexShader = `#version 300 es
         f_texCoord = a_texCoord;
 
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
+        f_fragPosLS = u_lightProjection * u_lightXform * worldPosition;
     }
 `
 const trackFragmentShader = `#version 300 es
@@ -455,11 +471,13 @@ const trackFragmentShader = `#version 300 es
     uniform sampler2D u_texSpecular;
     uniform sampler2D u_texNormal;
     uniform sampler2D u_texDepth;
+    uniform sampler2D u_texShadow;
 
     in vec3 f_worldPos;
     in vec3 f_viewPos;
     in vec3 f_lightPos;
     in vec2 f_texCoord;
+    in vec4 f_fragPosLS;
 
     out vec4 FragColor;
 
@@ -489,6 +507,23 @@ const trackFragmentShader = `#version 300 es
 
         float fraction = afterDepth / (afterDepth - beforeDepth);
         return currentTexCoords + (texCoordsDelta * fraction);
+    }
+
+    float calculateShadow() {
+        // Perspective divide.
+        vec3 projCoords = f_fragPosLS.xyz / f_fragPosLS.w;
+
+        // Transform to [0,1] range.
+        projCoords = projCoords * 0.5 + 0.5;
+
+        // No shadow for fragments outside of the light's frustum.
+        if(any(lessThan(projCoords, vec3(0))) || any(greaterThan(projCoords, vec3(1)))){
+            return 1.0;
+        }
+
+        float bias = 0.002;
+        float closestDepth = texture(u_texShadow, projCoords.xy).r;
+        return projCoords.z - bias > closestDepth  ? 0.0 : 1.0;
     }
 
     void main() {
@@ -523,8 +558,11 @@ const trackFragmentShader = `#version 300 es
         float specularIntensity = pow(max(dot(normal, halfWay), 0.0), u_shininess);
         vec3 specular = texSpecular * specularIntensity * u_lightColor * u_specular;
 
+        // shadow
+        float shadow = calculateShadow();
+
         // color
-        vec3 endColor = vec3(ambient + diffuse + specular);
+        vec3 endColor = vec3(ambient + shadow * (diffuse + specular));
         FragColor = vec4(endColor, 1.0);
     }
 `
@@ -534,7 +572,9 @@ const instanceVertexShader = `#version 300 es
 
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
+    uniform mat4 u_lightProjection;
     uniform vec3 u_lightPosition;
+    uniform mat4 u_lightXform;
     uniform vec3 u_groundArr[36];
     // type of building that is being created 1=ground, 2=tree, 3=station, 4=fueltank, 5=track
     uniform float u_type;
@@ -548,6 +588,7 @@ const instanceVertexShader = `#version 300 es
     out vec3 f_worldPos;
     out vec2 f_texCoord;
     out vec3 f_lightDir;
+    out vec4 f_fragPosLS;
 
     mat4 buildTranslation(vec3 delta) {
         if (u_type == 1.0) {
@@ -611,8 +652,9 @@ const instanceVertexShader = `#version 300 es
         f_normal = (iPos * vec4(a_normal, 0.0)).xyz;
         f_texCoord = a_texCoord;
         f_lightDir = normalize(u_lightPosition);
-        
+
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
+        f_fragPosLS = u_lightProjection * u_lightXform * worldPosition;
     }
 `
 
@@ -622,7 +664,9 @@ const trainVSSource = `#version 300 es
     uniform mat4 u_modelMatrix;
     uniform mat4 u_viewMatrix;
     uniform mat4 u_projectionMatrix;
+    uniform mat4 u_lightProjection;
     uniform vec3 u_lightPosition;
+    uniform mat4 u_lightXform;
 
     in vec3 a_pos;
     in vec3 a_normal;
@@ -632,6 +676,7 @@ const trainVSSource = `#version 300 es
     out vec3 f_worldPos;
     out vec2 f_texCoord;
     out vec3 f_lightDir;
+    out vec4 f_fragPosLS;
 
     void main() {
         vec4 worldPosition = u_modelMatrix * vec4(a_pos, 1.0);
@@ -641,6 +686,7 @@ const trainVSSource = `#version 300 es
         f_lightDir = normalize(u_lightPosition);
 
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
+        f_fragPosLS = u_lightProjection * u_lightXform * worldPosition;
     }
 `;
 
@@ -649,13 +695,32 @@ const trainFSSource = `#version 300 es
 
     uniform vec3 u_viewPos;
     uniform sampler2D u_texDiffuse;
+    uniform sampler2D u_texShadow;
 
     in vec3 f_normal;
     in vec3 f_worldPos;
     in vec2 f_texCoord;
     in vec3 f_lightDir;
+    in vec4 f_fragPosLS;
 
     out vec4 o_fragColor;
+
+    float calculateShadow() {
+        // Perspective divide.
+        vec3 projCoords = f_fragPosLS.xyz / f_fragPosLS.w;
+
+        // Transform to [0,1] range.
+        projCoords = projCoords * 0.5 + 0.5;
+
+        // No shadow for fragments outside of the light's frustum.
+        if(any(lessThan(projCoords, vec3(0))) || any(greaterThan(projCoords, vec3(1)))){
+            return 1.0;
+        }
+
+        float bias = 0.002;
+        float closestDepth = texture(u_texShadow, projCoords.xy).r;
+        return projCoords.z - bias > closestDepth  ? 0.0 : 1.0;
+    }
 
     void main() {
         vec3 texDiffuse = texture(u_texDiffuse, f_texCoord).rgb;
@@ -668,8 +733,11 @@ const trainFSSource = `#version 300 es
         vec3 diffuse = diffuseIntensity * texDiffuse;
         float specular = pow(max(0.0, dot(normal, halfWay)), 64.0) * 1.0;
 
+        // shadow
+        float shadow = calculateShadow();
+
         // color
-        vec3 endColor = vec3(ambient + diffuse + specular);
+        vec3 endColor = vec3(ambient + shadow * (diffuse + specular));
         o_fragColor = vec4(endColor, 1.0);
     }
 `;
@@ -684,15 +752,67 @@ const trackShader = glance.createShader(gl, "world-shader", groundInstanceVertex
     u_texSpecular: 1,
     u_texNormal: 2,
     u_texDepth: 3,
+    u_texShadow: 4,
+    u_lightProjection: lightProjection,
 });
 
 const worldObjectsShader = glance.createShader(gl, "world-objects-shader", instanceVertexShader, trainFSSource, {
     u_texDiffuse: 0,
+    u_texShadow: 1,
+    u_lightProjection: lightProjection,
 });
 
 const trainShader = glance.createShader(gl, "train-shader", trainVSSource, trainFSSource, {
     u_texDiffuse: 0,
+    u_texShadow: 1,
+    u_lightProjection: lightProjection,
 });
+
+
+
+    // =====================================================================
+    // Debug Screen
+    // =====================================================================
+
+    const debugShader = glance.createShader(gl, "debug-shader",
+        `#version 300 es
+    precision highp float;
+    in vec2 a_pos;
+    in vec2 a_texCoord;
+    out vec2 f_texCoord;
+    void main() {
+        f_texCoord = a_texCoord;
+        gl_Position = vec4(a_pos, 0.0, 1.0);
+    }
+`, `#version 300 es
+    precision mediump float;
+    uniform sampler2D u_texture;
+    in vec2 f_texCoord;
+    out vec4 o_fragColor;
+    void main() {
+        o_fragColor = vec4(vec3(texture(u_texture, f_texCoord).r), 1.0);
+    }
+`, {
+        u_texture: 0,
+    });
+
+    const debugGeo = glance.createScreenQuat("debug-geo", {
+        in2D: true,
+    });
+    const debugIBO = glance.createIndexBuffer(gl, debugGeo.indices);
+    const debugABO = glance.createAttributeBuffer(gl, "debug-abo", {
+        a_pos: { data: debugGeo.positions, height: 2 },
+        a_texCoord: { data: debugGeo.texCoords, height: 2 },
+    });
+    const debugVAO = glance.createVAO(gl, "debug-vao", debugIBO, glance.buildAttributeMap(debugShader, debugABO));
+
+    const debugDrawCall = glance.createDrawCall(gl, debugShader, debugVAO, {
+        textures: [[0, shadowDepthTexture]],
+        cullFace: gl.NONE,
+        depthTest: gl.NONE,
+    });
+
+
 
 // =====================================================================
 // World Objects
@@ -715,22 +835,18 @@ const tracksIABO = glance.createAttributeBuffer(gl, "tracks-iabo", {
 
 const tracksVAO = glance.createVAO(gl, "tracks-vao", tracksIBO, glance.buildAttributeMap(trackShader, [tracksABO, tracksIABO]));
 
-// const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_diff_1k.png");
-// const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_ao_1k.png");
-// const tracksTextureNormal = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png");
-// const tracksTextureDepth = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_disp_1k.png");
-
-const tracksTextureDiffuse = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-albedo.webp");
-const tracksTextureSpecular = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-ao.webp");
-const tracksTextureNormal = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-normal.webp");
-const tracksTextureDepth = await glance.loadTextureNow(gl, "https://echtzeit-computergrafik-ss24.github.io/img/pebbles-depth.webp");
+const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_diff_1k.png");
+const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_ao_1k.png");
+const tracksTextureNormal = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png");
+const tracksTextureDepth = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_disp_1k.png");
 
 const tracksDrawCall = glance.createDrawCall(gl, trackShader, tracksVAO, {
     uniforms: {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
-        u_lightPosition: () => lightPos,
+        u_lightPosition: () => lightParallaxPos,
+        u_lightXform: () => lightXform,
         u_groundArr: () => groundPosArrFlat,
 
     },
@@ -739,6 +855,7 @@ const tracksDrawCall = glance.createDrawCall(gl, trackShader, tracksVAO, {
         [1, tracksTextureSpecular],
         [2, tracksTextureNormal],
         [3, tracksTextureDepth],
+        [4, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -769,11 +886,13 @@ const treeDrawCall = glance.createDrawCall(gl, worldObjectsShader, treeVAO, {
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
         u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 2,
     },
     textures: [
         [0, treeTexture],
+        [1, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -804,11 +923,13 @@ const stationDrawCall = glance.createDrawCall(gl, worldObjectsShader, stationVAO
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
         u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 3,
     },
     textures: [
         [0, stationTexture],
+        [1, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -839,11 +960,13 @@ const fuelDrawCall = glance.createDrawCall(gl, worldObjectsShader, fuelVAO, {
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
         u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 4,
     },
     textures: [
         [0, fuelTexture],
+        [1, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -875,11 +998,13 @@ const trainTrackDrawCall = glance.createDrawCall(gl, worldObjectsShader, trainTr
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
         u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
         u_groundArr: () => groundPosArrFlat,
         u_type: () => 5,
     },
     textures: [
         [0, trainTrackTexture],
+        [1, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -908,9 +1033,11 @@ const flagDrawCall = glance.createDrawCall(gl, trainShader, flagVAO, {
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
         u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
     },
     textures: [
         [0, flagTexture],
+        [1, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
@@ -937,13 +1064,210 @@ const trainDrawCall = glance.createDrawCall(gl, trainShader, trainVAO, {
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
         u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
     },
     textures: [
         [0, trainTexture],
+        [1, shadowDepthTexture]
     ],
     cullFace: gl.BACK,
     depthTest: gl.LESS,
 });
+
+// Ground
+
+const groundGeo = glance.createCircularPlane("ground-geo", {
+    radius: 5,
+    segments: 64,
+});
+const groundIBO = glance.createIndexBuffer(gl, groundGeo.indices);
+const groundABO = glance.createAttributeBuffer(gl, "ground-abo", {
+    a_pos: { data: groundGeo.positions, height: 3 },
+    a_normal: { data: groundGeo.normals, height: 3 },
+    a_texCoord: { data: groundGeo.texCoords, height: 2 },
+});
+
+const groundVAO = glance.createVAO(gl, "ground-vao", groundIBO, glance.buildAttributeMap(trainShader, [groundABO]));
+
+const groundDrawCall = glance.createDrawCall(gl, trainShader, groundVAO, {
+    uniforms: {
+        u_modelMatrix: () => Mat4.identity(),
+        u_viewMatrix: () => viewMatrix,
+        u_projectionMatrix: () => projectionMatrix,
+        u_viewPos: () => viewPos,
+        u_lightPosition: () => lightPos,
+        u_lightXform: () => lightXform,
+    },
+    textures: [
+        [0, flagTexture],
+        [1, shadowDepthTexture]
+    ],
+    cullFace: gl.BACK,
+    depthTest: gl.LESS,
+});
+
+// =====================================================================
+// Shadow Mapping
+// =====================================================================
+
+const shadowVSSource = `#version 300 es
+    precision highp float;
+
+    uniform mat4 u_modelMatrix;
+    uniform mat4 u_lightXform;
+    uniform mat4 u_lightProjection;
+
+    in vec3 a_pos;
+
+    void main()
+    {
+        gl_Position = u_lightProjection * u_lightXform * u_modelMatrix * vec4(a_pos, 1.0);
+    }
+`;
+
+const shadowInstanceVSSource = `#version 300 es
+    precision highp float;
+
+    uniform mat4 u_lightXform;
+    uniform mat4 u_lightProjection;
+    uniform vec3 u_groundArr[36];
+    // type of building that is being created 1=ground, 2=tree, 3=station, 4=fueltank, 5=track
+    uniform float u_type;
+
+    in float a_instancePos;
+    in vec3 a_pos;
+
+    mat4 buildTranslation(vec3 delta) {
+        const float PI_2 = 1.57079632679489661923;
+        if (u_type == 1.0) {
+            return mat4(
+                vec4(1.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 1.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 1.0, 0.0),
+                vec4(delta, 1.0)
+            );
+        }
+        if (u_type == 2.0) {
+            return mat4(
+                vec4(1.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 1.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 1.0, 0.0),
+                vec4(delta.x, 0.5, delta.z, 1.0)
+            );
+        }
+        if (u_type == 3.0) {
+            return mat4(
+                vec4(0.6, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.8, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.6, 0.0),
+                vec4(delta.x, 1.0, delta.z, 1.0)
+            );
+        }
+        if (u_type == 4.0) {
+            return mat4(
+                vec4(0.6, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.8, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.6, 0.0),
+                vec4(delta.x, 1.0, delta.z, 1.0)
+            );
+        }
+        if (u_type == 5.0) {
+            // because instancing array of the tracks has a lot of elements with the id -1, move those out of sight
+            if (a_instancePos == -1.0) {
+                return mat4(
+                    vec4(2.0, 0.0, 0.0, 0.0),
+                    vec4(0.0, 2.0, 0.0, 0.0),
+                    vec4(0.0, 0.0, 2.0, 0.0),
+                    vec4(delta.x, 400, delta.z, 1.0)
+                );
+            } 
+            else {
+                return mat4(
+                    vec4(2.0, 0.0, 0.0, 0.0),
+                    vec4(0.0, 2.0, 0.0, 0.0),
+                    vec4(0.0, 0.0, 2.0, 0.0),
+                    vec4(delta.x, 0.5, delta.z, 1.0)
+                );
+            }
+        }
+    }
+
+
+    void main()
+    {
+        int id = int(a_instancePos);
+        mat4 iPos = buildTranslation(u_groundArr[id]);
+        gl_Position = u_lightProjection * u_lightXform * iPos * vec4(a_pos, 1.0);
+    }
+`;
+
+const shadowFSSource = `#version 300 es
+    precision mediump float;
+
+    void main() {}
+`;
+
+const shadowShader = glance.createShader(gl, "shadow-shader", shadowVSSource, shadowFSSource, {
+    u_lightProjection: lightProjection,
+});
+
+const shadowInstanceShader = glance.createShader(gl, "shadow-instance-shader", shadowInstanceVSSource, shadowFSSource, {
+    u_lightProjection: lightProjection,
+});
+
+const shadowFramebuffer = glance.createFramebuffer(gl, "shadow-framebuffer", null, shadowDepthTexture);
+
+const shadowDrawCalls = [
+    glance.createDrawCall(gl, shadowShader, flagVAO, {
+        uniforms: {
+            u_modelMatrix: ({time}) => Mat4.fromTranslation(new Vec3(20,0,-30)).scale((Math.cos(time/400) + 4)),
+            u_lightXform: () => lightXform,
+        },
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+    }),
+    glance.createDrawCall(gl, shadowShader, trainVAO, {
+        uniforms: {
+            u_modelMatrix: () => Mat4.fromTranslation(trainPos).rotateY(trainRotY),
+            u_lightXform: () => lightXform,
+        },
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+    }),
+    glance.createDrawCall(gl, shadowInstanceShader, treeVAO, {
+        uniforms: {
+            u_groundArr: () => groundPosArrFlat,
+            u_lightXform: () => lightXform,
+            u_type: () => 2,
+        },
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+        instances: () => blockedTiles.length,
+        enabled: () => blockedTiles.length > 0,
+    }),
+    glance.createDrawCall(gl, shadowInstanceShader, stationVAO, {
+        uniforms: {
+            u_groundArr: () => groundPosArrFlat,
+            u_lightXform: () => lightXform,
+            u_type: () => 3,
+        },
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+        instances: () => allTrainStationTiles.length,
+        enabled: () => allTrainStationTiles.length > 0,
+    }),
+    glance.createDrawCall(gl, shadowInstanceShader, fuelVAO, {
+        uniforms: {
+            u_groundArr: () => groundPosArrFlat,
+            u_lightXform: () => lightXform,
+            u_type: () => 4,
+        },
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+        instances: () => fuelTiles.length,
+        enabled: () => fuelTiles.length > 0,
+    }),
+];
 
 
 // =====================================================================
@@ -1102,26 +1426,39 @@ const postLoseDrawCall = glance.createDrawCall(gl, postShader, postVAO, {
 // Render Loop
 // =====================================================================
 
-const upVec = Vec3.yAxis();
 let lastTime = -1;
+const framebufferStack = new glance.FramebufferStack();
 
 setRenderLoop((time) => {
     const deltaTime = lastTime >= 0 ? time - lastTime : 0;
     lastTime = time;
 
     // Update the light
-    lightPos
-        .set(0, 0, -1)
-        .rotateX(lightTilt)
-        .rotateY(time * lightRotationSpeed);
-    lightXform.lookAt(lightPos, origin, up);
+    lightPos.set(0, 0, -1).rotateX(lightTilt).rotateY(time * lightRotationSpeed);
+    lightParallaxPos.set(0, 0, -80).rotateX(lightTilt).rotateY(time * lightRotationSpeed);
+    lightXform.lookAt(lightParallaxPos, origin, up);
 
     // add Post Framebuffer if end is reached
     if (gameFinished && 1==2) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
     }
+    else {
+        // Render shadow map
+        framebufferStack.push(gl, shadowFramebuffer);
+        {
+            gl.clear(gl.DEPTH_BUFFER_BIT);
+            for (const drawCall of shadowDrawCalls)
+            {
+                glance.performDrawCall(gl, drawCall, time);
+            }
+        }
+        framebufferStack.pop(gl);
+    }
+
+
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    // glance.performDrawCall(gl, debugDrawCall, time);
     glance.performDrawCall(gl, skyboxDrawCall, time);
     glance.performDrawCall(gl, tracksDrawCall, time);
     glance.performDrawCall(gl, treeDrawCall, time);
@@ -1129,10 +1466,12 @@ setRenderLoop((time) => {
     glance.performDrawCall(gl, fuelDrawCall, time);
     glance.performDrawCall(gl, trainTrackDrawCall, time);
     glance.performDrawCall(gl, flagDrawCall, time);
+    glance.performDrawCall(gl, groundDrawCall, time);
 
     if (isTrainDriving) {
         document.getElementById("fuel-counter-div").style.display = "none";
         if (trainDestination === 24) {
+            trainPos = new Vec3(-27.5,1,16.5);
             trainDestinationIndex += 1;
             trainDestination = tilesSelected[trainDestinationIndex];
             // rotate train based on if x or z is about to change, because from start there are only two possible rotations
@@ -1188,7 +1527,7 @@ setRenderLoop((time) => {
     else {
         viewPos.set(0, 0, zoom).rotateX(-Math.PI/2).add(cameraFocus);
     }
-    viewMatrix.lookAt(viewPos, cameraFocus, upVec);
+    viewMatrix.lookAt(viewPos, cameraFocus, up);
 
     // update the fuelcount
     document.getElementById("fuel-counter-span").textContent = fuelCount;

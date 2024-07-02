@@ -1,7 +1,38 @@
-export { createShader, buildAttributeMap, combineAttributeMaps, loadTexture, loadTextureNow, loadCubemap, loadCubemapNow, FramebufferStack, loadCodeSnippet, };
-import { TextureDataTarget, TextureInternalFormat, TextureTarget, } from "./types.js";
-import { throwError, } from "./dev.js";
-import { createFragmentShader, createShaderProgram, createTexture, createVertexShader, updateTexture, deleteShader, } from "./core.js";
+export { buildAttributeMap, combineAttributeMaps, createShader, FramebufferStack, loadCodeSnippet, loadCubemap, loadCubemapNow, loadDataVolumeNow, loadTexture, loadTextureNow, };
+import { TextureDataTarget, TextureFilter, TextureInternalFormat, TextureTarget, TextureWrap, } from "./types.js";
+import { createFragmentShader, createShaderProgram, createTexture, createVertexShader, deleteShader, updateTexture, } from "./core.js";
+import { throwError } from "./dev.js";
+import { clamp } from "./math/common.js";
+// Shader =================================================================== //
+/// Builds a shader program from the given vertex and fragment shader sources.
+/// @param gl WebGL2 context.
+/// @param name Name of the shader program.
+/// @param vertexSource Source code of the vertex shader.
+/// @param fragmentSource Source code of the fragment shader.
+/// @param uniforms The initial values of the uniforms.
+/// Unspecified non-sampler uniforms are initialized to a default value based on its type (zero or identity matrix).
+/// Unspecified sampler uniforms will cause an error.
+/// @param attributes Manual locations for the attributes.
+/// If an attribute is not specified, the location is determined automatically.
+/// @returns The created shader program.
+function createShader(gl, name, vertexSource, fragmentSource, uniforms = {}, attributes = {}) {
+    let vertexShader = null;
+    let fragmentShader = null;
+    try {
+        vertexShader = createVertexShader(gl, vertexSource);
+        fragmentShader = createFragmentShader(gl, fragmentSource);
+        return createShaderProgram(gl, name, vertexShader, fragmentShader, uniforms, attributes);
+    }
+    finally {
+        if (vertexShader !== null) {
+            deleteShader(gl, vertexShader);
+        }
+        if (fragmentShader !== null) {
+            deleteShader(gl, fragmentShader);
+        }
+    }
+}
+// TODO: createShader is a bad name, also there exist createShaderProgram and createShaderProgram already ...
 // Attribute ================================================================= //
 /// Inspects the given shader and attribute buffer to build a mapping between
 /// the shader's attribute locations and the buffer's attributes.
@@ -164,8 +195,8 @@ function loadTextureNow(gl, url, options = {}) {
             updateTexture(gl, texture, image, {
                 flipY: options.flipY ?? true,
             });
-            resolve(texture);
             image = null;
+            resolve(texture);
         };
         image.onerror = reject;
         if ((new URL(url, window.location.href)).origin !== window.location.origin) {
@@ -253,37 +284,99 @@ function loadCubemapNow(gl, name, urls, options = {}) {
         });
     });
 }
-// Shader =================================================================== //
-/// Builds a shader program from the given vertex and fragment shader sources.
+/// Load the data of a 3D Texture from a series of "slices" (2D textures).
+/// This has slightly different defaults than `loadTexture` and `loadTextureNow`.
 /// @param gl WebGL2 context.
-/// @param name Name of the shader program.
-/// @param vertexSource Source code of the vertex shader.
-/// @param fragmentSource Source code of the fragment shader.
-/// @param uniforms The initial values of the uniforms.
-/// Unspecified non-sampler uniforms are initialized to a default value based on its type (zero or identity matrix).
-/// Unspecified sampler uniforms will cause an error.
-/// @param attributes Manual locations for the attributes.
-/// If an attribute is not specified, the location is determined automatically.
-/// @returns The created shader program.
-function createShader(gl, name, vertexSource, fragmentSource, uniforms = {}, attributes = {}) {
-    let vertexShader = null;
-    let fragmentShader = null;
-    try {
-        vertexShader = createVertexShader(gl, vertexSource);
-        fragmentShader = createFragmentShader(gl, fragmentSource);
-        return createShaderProgram(gl, name, vertexShader, fragmentShader, uniforms, attributes);
+/// @param name Name of the volume.
+/// @param urls URLs of the slices.
+/// @param options Additional texture options:
+/// - `useAnisotropy`: Whether to use anisotropic filtering, defaults to `false`.
+/// - `createMipMaps`: Whether to create mipmaps, defaults to `false`.
+/// - `filter`: Texture (min/mag) filter(s), defaults to `TextureFilter.LINEAR`.
+/// - `wrap`: Texture wrap mode(s), defaults to `TextureWrap.CLAMP_TO_EDGE`.
+/// - `format`: Texture internal format, defaults to `TextureInternalFormat.R16F`.
+function loadDataVolumeNow(gl, name, urls, options = {}) {
+    // Get the default options
+    const levels = options.createMipMaps ? undefined : 1;
+    const useAnisotropy = options.useAnisotropy ?? false;
+    const filter = options.filter ?? TextureFilter.LINEAR;
+    const wrap = options.wrap ?? TextureWrap.CLAMP_TO_EDGE;
+    const internalFormat = options.format ?? TextureInternalFormat.R16F;
+    const input_min = options.input_min ?? 0;
+    const input_max = options.input_max ?? 255;
+    const output_min = options.output_min ?? 0;
+    const output_max = options.output_max ?? 1;
+    if (internalFormat !== TextureInternalFormat.R16F) {
+        // TODO: support other internal formats for data volumes?
+        throwError(() => "Data volume textures must (for now) have internal format R16F");
     }
-    finally {
-        if (vertexShader !== null) {
-            deleteShader(gl, vertexShader);
+    return new Promise(async (resolve, reject) => {
+        // Load the first slice to get the size of the volume.
+        let volumeDefTexture = await loadTextureNow(gl, urls[0], {
+            createMipMaps: false,
+            useAnisotropy: false,
+            filter: TextureFilter.NEAREST,
+            wrap: TextureWrap.CLAMP_TO_EDGE,
+            flipY: false,
+        });
+        const width = volumeDefTexture.width;
+        const height = volumeDefTexture.height;
+        const depth = urls.length;
+        gl.deleteTexture(volumeDefTexture.glObject); // TODO: dedicated cleanup functions
+        // Create the volume texture.
+        const volumeTexture = createTexture(gl, name, width, height, gl.TEXTURE_3D, depth, { levels, useAnisotropy, filter, wrap, internalFormat });
+        // We need to draw the slices onto the canvas to access the pixel data.
+        const drawCanvas = new OffscreenCanvas(width, height);
+        let ctx = drawCanvas.getContext("2d", {
+            willReadFrequently: true,
+        });
+        if (ctx === null) {
+            throwError(() => "Failed to create 2D context for offscreen canvas");
         }
-        if (fragmentShader !== null) {
-            deleteShader(gl, fragmentShader);
+        // Load the slices simultaneously and copy them into the volume texture.
+        // const framebufferStack = new FramebufferStack();
+        const promises = [];
+        const inputRange = input_max - input_min;
+        const outputRange = output_max - output_min;
+        gl.bindTexture(gl.TEXTURE_3D, volumeTexture.glObject);
+        for (let sliceIdx = 0; sliceIdx < depth; sliceIdx++) {
+            promises.push(new Promise((resolve2) => {
+                const slice = sliceIdx; // local copy for closure
+                let image = new Image();
+                image.onload = () => {
+                    // Draw the slice onto the canvas to access the pixel data.
+                    ctx.drawImage(image, 0, 0);
+                    const imageData = ctx.getImageData(0, 0, width, height);
+                    const pixelData = new Uint8ClampedArray(imageData.data.buffer);
+                    if (pixelData.length !== width * height * 4) {
+                        throw new Error(`Unexpected pixel data length: ${pixelData.length} instead of ${width * height * 4}`);
+                    }
+                    // Transform the 8 bit pixel data into floating point SDF data.
+                    const realData = new Float32Array(width * height);
+                    for (let i = 0; i < realData.length; i++) {
+                        const value = clamp(pixelData[i * 4], input_min, input_max);
+                        realData[i] = output_min + ((value - input_min) / inputRange) * outputRange;
+                    }
+                    // Copy the normalized data into the volume texture.
+                    gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, slice, width, height, 1, gl.RED, gl.FLOAT, realData);
+                    // Clean up.
+                    image = null;
+                    resolve2();
+                };
+                image.onerror = reject;
+                if ((new URL(urls[sliceIdx], window.location.href)).origin !== window.location.origin) {
+                    image.crossOrigin = "anonymous";
+                }
+                image.src = urls[sliceIdx];
+            }));
         }
-    }
+        await Promise.all(promises);
+        // Clean up.
+        gl.bindTexture(gl.TEXTURE_3D, null);
+        // Done.
+        resolve(volumeTexture);
+    });
 }
-// TODO: return class instance that can be used to set uniforms and attributes
-// like with `myShader.uniforms.u_projectionMatrix = ...`
 // Framebuffer =============================================================== //
 function getFramebufferSize(framebuffer) {
     if (framebuffer.color.length > 0) {

@@ -38,13 +38,13 @@ export class Vec2
         return new Vec2(0, 1);
     }
 
-    /// A random Vec2 with unit length.
+    /// A random Vec2 with unit magnitude.
     public static randomDir(): Vec2
     {
         const x = Math.random() * 2 - 1;
         const y = Math.random() * 2 - 1;
-        const length = Math.hypot(x, y);
-        return new Vec2(x / length, y / length);
+        const mag = Math.hypot(x, y);
+        return new Vec2(x / mag, y / mag);
     }
 
     /// A Vec2 with x and y initialized from the given array at the given offset.
@@ -80,10 +80,10 @@ export class Vec2
     /// Normal of a.
     public static normalOf(a: Vec2): Vec2
     {
-        const lengthSq = a.x * a.x + a.y * a.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            return new Vec2(a.x * invLength, a.y * invLength);
+        const magSq = a.x * a.x + a.y * a.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            return new Vec2(a.x * invMag, a.y * invMag);
         } else {
             return new Vec2(0, 0);
         }
@@ -117,16 +117,19 @@ export class Vec2
     }
 
     /// Get the x or y component by index.
+    [index: number]: number;
     get 0(): number { return this.x; }
     set 0(value: number) { this.x = value; }
     get 1(): number { return this.y; }
     set 1(value: number) { this.y = value; }
+    get length(): number { return 2; }
 
     /// Alternative names for the components
     get width(): number { return this.x; }
     set width(value: number) { this.x = value; }
     get height(): number { return this.y; }
     set height(value: number) { this.y = value; }
+    get ratio(): number { return this.y === 0 ? 0 : this.x / this.y; }
 
     get u(): number { return this.x; }
     set u(value: number) { this.x = value; }
@@ -194,6 +197,12 @@ export class Vec2
         return (
             Math.abs(this.x - other.x) <= epsilon &&
             Math.abs(this.y - other.y) <= epsilon);
+    }
+
+    /// Tests if any component is non-zero.
+    public any(): boolean
+    {
+        return this.x != 0 || this.y != 0;
     }
 
     /// Set this Vec2's x and y.
@@ -383,14 +392,14 @@ export class Vec2
         return this.x * other.y - this.y * other.x;
     }
 
-    /// Squared length of this.
-    public lengthSq(): number
+    /// Squared magnitude of this.
+    public magSq(): number
     {
         return this.x * this.x + this.y * this.y;
     }
 
-    /// Length of this.
-    public length(): number
+    /// Magnitude (length) of this.
+    public magnitude(): number
     {
         return Math.hypot(this.x, this.y);
     }
@@ -404,11 +413,11 @@ export class Vec2
     /// Normalize this.
     public normalize(): Vec2
     {
-        const lengthSq = this.x * this.x + this.y * this.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x *= invLength;
-            this.y *= invLength;
+        const magSq = this.x * this.x + this.y * this.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x *= invMag;
+            this.y *= invMag;
         }
         return this;
     }
@@ -416,11 +425,11 @@ export class Vec2
     /// Set this to the normalized value of other.
     public normalOf(other: Vec2): Vec2
     {
-        const lengthSq = other.x * other.x + other.y * other.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x = other.x * invLength;
-            this.y = other.y * invLength;
+        const magSq = other.x * other.x + other.y * other.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x = other.x * invMag;
+            this.y = other.y * invMag;
         } else {
             this.x = 0;
             this.y = 0;
@@ -496,13 +505,13 @@ export class Vec2
         return this;
     }
 
-    /// Clamp the length of this between min and max.
-    public clampLength(min: number, max: number): Vec2
+    /// Clamp the magnitude of this between min and max.
+    public clampMagnitude(min: number, max: number): Vec2
     {
-        const lengthSq = this.x * this.x + this.y * this.y;
-        if (lengthSq > 0) {
-            const length = Math.sqrt(lengthSq);
-            const factor = Math.max(min, Math.min(max, length)) / length;
+        const magSq = this.x * this.x + this.y * this.y;
+        if (magSq > 0) {
+            const mag = Math.sqrt(magSq);
+            const factor = Math.max(min, Math.min(max, mag)) / mag;
             this.x *= factor;
             this.y *= factor;
         }
@@ -585,6 +594,20 @@ export class Vec2
         const y = this.y - pivot.y;
         this.x = x * cos - y * sin + pivot.x;
         this.y = x * sin + y * cos + pivot.y;
+        return this;
+    }
+
+    /// Translate this Vec2 along the positive x-axis by the given distance.
+    public translateX(distance: number): Vec2
+    {
+        this.x += distance;
+        return this;
+    }
+
+    /// Translate this Vec2 along the positive y-axis by the given distance.
+    public translateY(distance: number): Vec2
+    {
+        this.y += distance;
         return this;
     }
 

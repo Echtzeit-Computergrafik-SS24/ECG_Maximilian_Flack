@@ -25,6 +25,7 @@ import
     CullFace,
     DepthTest,
     DrawMode,
+    INTEGER_TYPES,
     ShaderStage,
     TextureCompareFunc,
     TextureDataTarget,
@@ -392,7 +393,7 @@ function createAttributeBuffer(
     // Bind the VBO and store the data.
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     gl.bufferData(gl.ARRAY_BUFFER, dataArray, usage ?? gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
     // Create the Attribute Buffer Object.
     logInfo(() => `Created Attribute Buffer "${name}" with ${descriptions.size} attributes for ${vertexCount} vertices and a size of ${dataArray.byteLength} bytes.`);
@@ -550,14 +551,24 @@ function createVAO(
         gl.bindBuffer(gl.ARRAY_BUFFER, attributeBuffer.glObject);
         for (let locationOffset = 0; locationOffset < definition.width; ++locationOffset) {
             gl.enableVertexAttribArray(location + locationOffset);
-            gl.vertexAttribPointer(
-                location + locationOffset,
-                definition.height,
-                definition.type,
-                definition.normalized ?? false,
-                bufferStride,
-                offset + (locationOffset * (attributeSize / definition.width)),
-            );
+            if (INTEGER_TYPES.includes(definition.type)) {
+                gl.vertexAttribIPointer(
+                    location + locationOffset,
+                    definition.height,
+                    definition.type,
+                    bufferStride,
+                    offset + (locationOffset * (attributeSize / definition.width)),
+                );
+            } else {
+                gl.vertexAttribPointer(
+                    location + locationOffset,
+                    definition.height,
+                    definition.type,
+                    definition.normalized ?? false,
+                    bufferStride,
+                    offset + (locationOffset * (attributeSize / definition.width)),
+                );
+            }
             gl.vertexAttribDivisor(location + locationOffset, definition.divisor ?? 0);
         }
         logInfo(() => `Attribute "${attributeName}" of VAO "${name}" bound to location: ${location}`);
@@ -902,17 +913,17 @@ function createTexture(
 
     // Determine the number of levels to create.
     if (!isPowerOf2(width)) {
-        if (options.levels !== undefined) {
+        if (options.levels !== undefined && options.levels !== 1) {
             logWarning(() => `Ignoring given number of levels for ${kind} texture "${name}" because its width is not a power of two.`);
         }
         options.levels = 1;
     } else if (!isPowerOf2(height)) {
-        if (options.levels !== undefined) {
+        if (options.levels !== undefined && options.levels !== 1) {
             logWarning(() => `Ignoring given number of levels for ${kind} texture "${name}" because its height is not a power of two.`);
         }
         options.levels = 1;
     } else if (depth !== null && !isPowerOf2(depth)) {
-        if (options.levels !== undefined) {
+        if (options.levels !== undefined && options.levels !== 1) {
             logWarning(() => `Ignoring given number of levels for ${kind} texture "${name}" because its depth is not a power of two.`);
         }
         // TODO: I thought WebGL2 can handle non-power-of-two MIP maps?
@@ -1737,9 +1748,8 @@ const uniformUpdateError = (uniform: ShaderUniform, size: number, type: string) 
 /// Helper function to call the corret gl.uniform* function based on the uniform type.
 /// @param gl The WebGL context.
 /// @param uniform The uniform info with the value to set.
-function setUniform(gl: WebGL2, uniform: ShaderUniform): void
+function uploadUniform(gl: WebGL2, uniform: ShaderUniform): void
 {
-    // Assign non-sampler uniforms.
     switch (uniform.type) {
         case 'float':
             assert(() => [isNumber(uniform.value), `Value of uniform must be a number!`]);
@@ -2094,6 +2104,7 @@ function createShaderProgram(
             type: foundUniform.type,
             location,
             size: uniformSize,
+            lastValue: initialValue,
             value: initialValue,
         };
         shaderUniforms.set(uniformName, shaderUniform);
@@ -2101,11 +2112,12 @@ function createShaderProgram(
         // Upload the value.
         if (manualInitialValue !== undefined || uniformHasNonZeroDefault(foundUniform.type)) {
             try {
-                setUniform(gl, shaderUniform);
+                uploadUniform(gl, shaderUniform);
+                shaderUniform.value = null; // clear the value after upload
             } catch (error) {
                 throwError(() => `Failed to set initial value of uniform "${uniformName}" of shader "${name}": ${error}`);
             }
-            logInfo(() => `Uniform "${uniformName}" of shader "${name}" initialized with: ${shaderUniform.value}.`);
+            logInfo(() => `Uniform "${uniformName}" of shader "${name}" initialized with: ${shaderUniform.lastValue}.`);
         }
     }
     gl.useProgram(null);
@@ -2331,7 +2343,7 @@ function createDrawCall(
         indexOffset?: number,
         instances?: number | (() => number),
         updateDepthBuffer?: boolean,
-        blendFunc?: [BlendFunc, BlendFunc],
+        blendFunc?: [BlendFunc, BlendFunc] | [BlendFunc, BlendFunc, BlendFunc, BlendFunc],
         drawMode?: DrawMode,
         enabled?: (time: number) => boolean,
     } = {}
@@ -2341,6 +2353,8 @@ function createDrawCall(
     //  We can get the texture unit from the uniform value on the shader, but we need to know the uniform name
     //  to do that. This would avoid the need to specify the texture unit manually, which will have to match the value
     //  of the uniform value anyway. This way, we can also check for errors more easily.
+
+    // TODO: why can't I use a texture2D and a cubemap texture in the same slot?
 
     // Validate the arguments.
     const uniforms = options.uniforms ?? {};
@@ -2435,7 +2449,7 @@ function createDrawCall(
     };
 }
 
-function performDrawCall(gl: WebGL2, drawCall: DrawCall, time: number, delta: number)
+function performDrawCall(gl: WebGL2, drawCall: DrawCall, time: number)
 {
     // Return early if the draw call is disabled.
     if (drawCall.enabled !== undefined && !drawCall.enabled(time)) {
@@ -2457,12 +2471,20 @@ function performDrawCall(gl: WebGL2, drawCall: DrawCall, time: number, delta: nu
     }
     if (drawCall.blendFunc[0] !== BlendFunc.ONE || drawCall.blendFunc[1] !== BlendFunc.ZERO) {
         gl.enable(gl.BLEND);
-        gl.blendFunc(drawCall.blendFunc[0], drawCall.blendFunc[1]);
+        if (drawCall.blendFunc.length === 4) {
+            gl.blendFuncSeparate(
+                drawCall.blendFunc[0], drawCall.blendFunc[1],
+                drawCall.blendFunc[2], drawCall.blendFunc[3]);
+        } else if (drawCall.blendFunc.length === 2) {
+            gl.blendFunc(drawCall.blendFunc[0], drawCall.blendFunc[1]);
+        } else {
+            throwError(() => `Invalid blend function array length: ${drawCall.blendFunc.length}.`);
+        }
     }
 
     gl.depthMask(drawCall.updateDepthBuffer);
     try {
-        // Update the uniforms.
+        // Call the uniform update callbacks.
         for (const [uniformName, updateCallback] of drawCall.uniforms) {
             const uniform: ShaderUniform | undefined = drawCall.program.uniforms.get(uniformName);
             if (uniform === undefined) {
@@ -2470,24 +2492,38 @@ function performDrawCall(gl: WebGL2, drawCall: DrawCall, time: number, delta: nu
                 // TODO: a logWarning(once) would be nice
                 continue;
             }
-            const newValue = updateCallback({ time });
-            if (newValue === undefined) {
-                throwError(() => `The Uniform update callback for "${uniformName}" did not return a value.`);
+            // Only call the callbacks for every uniform that has not been defined manually.
+            if (uniform.value === null) {
+                uniform.value = updateCallback({ time });
+                if (uniform.value === undefined || uniform.value === null) {
+                    uniform.value = null;
+                    throwError(() => `The Uniform update callback for "${uniformName}" did not return a value.`);
+                }
             }
-            if (areEqual(newValue, uniform.value)) {
-                continue; // no need to update
+        }
+
+        // Update the uniforms.
+        for (const [uniformName, uniform] of drawCall.program.uniforms) {
+            // Skip uniforms that have not been changed.
+            if (uniform.value === null) {
+                continue;
             }
-            // Store a shallow copy of the new value.
-            if (isPrimitive(newValue)) {
-                uniform.value = newValue;
-            } else {
-                shallowCopy(uniform.value, newValue);
+            if (!areEqual(uniform.value, uniform.lastValue)) {
+                // Upload the new value to the GPU.
+                try {
+                    uploadUniform(gl, uniform);
+                } catch (error) {
+                    throwError(() => `Failed to update uniform "${uniformName}" of shader "${drawCall.program.name}": ${error}`);
+                }
+                // Store a shallow copy of the new value.
+                if (isPrimitive(uniform.value)) {
+                    uniform.lastValue = uniform.value;
+                } else {
+                    shallowCopy(uniform.lastValue, uniform.value);
+                }
             }
-            try {
-                setUniform(gl, uniform);
-            } catch (error) {
-                throwError(() => `Failed to update uniform "${uniformName}" of shader "${drawCall.program.name}": ${error}`);
-            }
+            // Reset the new value to null.
+            uniform.value = null;
         }
 
         // Bind the textures

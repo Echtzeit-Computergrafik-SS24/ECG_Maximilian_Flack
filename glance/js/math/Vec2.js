@@ -23,12 +23,12 @@ export class Vec2 {
     static yAxis() {
         return new Vec2(0, 1);
     }
-    /// A random Vec2 with unit length.
+    /// A random Vec2 with unit magnitude.
     static randomDir() {
         const x = Math.random() * 2 - 1;
         const y = Math.random() * 2 - 1;
-        const length = Math.hypot(x, y);
-        return new Vec2(x / length, y / length);
+        const mag = Math.hypot(x, y);
+        return new Vec2(x / mag, y / mag);
     }
     /// A Vec2 with x and y initialized from the given array at the given offset.
     static fromArray(array, offset = 0) {
@@ -52,10 +52,10 @@ export class Vec2 {
     }
     /// Normal of a.
     static normalOf(a) {
-        const lengthSq = a.x * a.x + a.y * a.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            return new Vec2(a.x * invLength, a.y * invLength);
+        const magSq = a.x * a.x + a.y * a.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            return new Vec2(a.x * invMag, a.y * invMag);
         }
         else {
             return new Vec2(0, 0);
@@ -75,16 +75,17 @@ export class Vec2 {
         this.x = x;
         this.y = y;
     }
-    /// Get the x or y component by index.
     get 0() { return this.x; }
     set 0(value) { this.x = value; }
     get 1() { return this.y; }
     set 1(value) { this.y = value; }
+    get length() { return 2; }
     /// Alternative names for the components
     get width() { return this.x; }
     set width(value) { this.x = value; }
     get height() { return this.y; }
     set height(value) { this.y = value; }
+    get ratio() { return this.y === 0 ? 0 : this.x / this.y; }
     get u() { return this.x; }
     set u(value) { this.x = value; }
     get v() { return this.y; }
@@ -140,6 +141,10 @@ export class Vec2 {
     equals(other, epsilon = EPSILON) {
         return (Math.abs(this.x - other.x) <= epsilon &&
             Math.abs(this.y - other.y) <= epsilon);
+    }
+    /// Tests if any component is non-zero.
+    any() {
+        return this.x != 0 || this.y != 0;
     }
     /// Set this Vec2's x and y.
     /// If y is not given, both x and y will be set to x.
@@ -280,12 +285,12 @@ export class Vec2 {
     cross(other) {
         return this.x * other.y - this.y * other.x;
     }
-    /// Squared length of this.
-    lengthSq() {
+    /// Squared magnitude of this.
+    magSq() {
         return this.x * this.x + this.y * this.y;
     }
-    /// Length of this.
-    length() {
+    /// Magnitude (length) of this.
+    magnitude() {
         return Math.hypot(this.x, this.y);
     }
     /// Manhattan length of this.
@@ -294,21 +299,21 @@ export class Vec2 {
     }
     /// Normalize this.
     normalize() {
-        const lengthSq = this.x * this.x + this.y * this.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x *= invLength;
-            this.y *= invLength;
+        const magSq = this.x * this.x + this.y * this.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x *= invMag;
+            this.y *= invMag;
         }
         return this;
     }
     /// Set this to the normalized value of other.
     normalOf(other) {
-        const lengthSq = other.x * other.x + other.y * other.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x = other.x * invLength;
-            this.y = other.y * invLength;
+        const magSq = other.x * other.x + other.y * other.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x = other.x * invMag;
+            this.y = other.y * invMag;
         }
         else {
             this.x = 0;
@@ -366,12 +371,12 @@ export class Vec2 {
         this.y = Math.max(min, Math.min(max, this.y));
         return this;
     }
-    /// Clamp the length of this between min and max.
-    clampLength(min, max) {
-        const lengthSq = this.x * this.x + this.y * this.y;
-        if (lengthSq > 0) {
-            const length = Math.sqrt(lengthSq);
-            const factor = Math.max(min, Math.min(max, length)) / length;
+    /// Clamp the magnitude of this between min and max.
+    clampMagnitude(min, max) {
+        const magSq = this.x * this.x + this.y * this.y;
+        if (magSq > 0) {
+            const mag = Math.sqrt(magSq);
+            const factor = Math.max(min, Math.min(max, mag)) / mag;
             this.x *= factor;
             this.y *= factor;
         }
@@ -435,6 +440,16 @@ export class Vec2 {
         const y = this.y - pivot.y;
         this.x = x * cos - y * sin + pivot.x;
         this.y = x * sin + y * cos + pivot.y;
+        return this;
+    }
+    /// Translate this Vec2 along the positive x-axis by the given distance.
+    translateX(distance) {
+        this.x += distance;
+        return this;
+    }
+    /// Translate this Vec2 along the positive y-axis by the given distance.
+    translateY(distance) {
+        this.y += distance;
         return this;
     }
     /// Transform this Vec2 by the given Mat3.

@@ -1,19 +1,43 @@
-/// Adapted from the glsl code at https://github.com/KdotJPG/OpenSimplex2/blob/master/glsl/OpenSimplex2S.glsl
-/// Licensed under CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
-///
-/// `openSimplex2SHeightmap` is called `openSimplex2SDerivatives_ImproveXY` in the original.
-
 import { Vec3 } from "./Vec3.js";
 import { Vec4 } from "./Vec4.js";
 import { Mat3 } from "./Mat3.js";
 import { Mat4 } from "./Mat4.js";
 
-
-
 export
 {
+    mulberry32,
     openSimplex2SHeightmap,
 };
+
+
+// =============================================================================
+// Random Number Generators
+// =============================================================================
+
+/// Returns a random number generator using the given seed.
+/// The generator is based on the 32-bit version of the Mulberry32 algorithm.
+/// This can be used to generate random numbers in a deterministic way, unlike
+/// the built -in Math.random().
+/// @param seed Seed for the random number generator
+function mulberry32(seed: number): () => number
+{
+    return function ()
+    {
+        var t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+
+/// ============================================================================
+/// Open Simplex Noise
+/// Adapted from the glsl code at https://github.com/KdotJPG/OpenSimplex2/blob/master/glsl/OpenSimplex2S.glsl
+/// Licensed under CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+///
+/// `openSimplex2SHeightmap` is called `openSimplex2SDerivatives_ImproveXY` in the original.
+/// ============================================================================
 
 // Borrowed from Stefan Gustavson's noise code
 function permute(t: Vec4)

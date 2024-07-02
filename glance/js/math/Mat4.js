@@ -229,7 +229,6 @@ export class Mat4 {
         this.o = o;
         this.p = p;
     }
-    /// Get the value of the given component.
     get 0() { return this.a; }
     get 1() { return this.b; }
     get 2() { return this.c; }
@@ -246,6 +245,7 @@ export class Mat4 {
     get 13() { return this.n; }
     get 14() { return this.o; }
     get 15() { return this.p; }
+    get length() { return 16; }
     /// Resets this Mat4 to the identity matrix.
     reset() {
         this.a = 1;
@@ -738,6 +738,14 @@ export class Mat4 {
         this.p += this.d * x + this.h * y + this.l * z;
         return this;
     }
+    /// 3D Translation of this Mat4 by the given distances along the x, y, and z axes.
+    translate3(x, y, z) {
+        this.m += this.a * x + this.e * y + this.i * z;
+        this.n += this.b * x + this.f * y + this.j * z;
+        this.o += this.c * x + this.g * y + this.k * z;
+        this.p += this.d * x + this.h * y + this.l * z;
+        return this;
+    }
     /// 3D Translation of this Mat4 by the given distance along the x-axis.
     translateX(delta) {
         this.m += this.a * delta;
@@ -869,9 +877,9 @@ export class Mat4 {
         const nf = 1 / (near - far);
         return this.set(-2 * lr, 0, 0, 0, 0, -2 * bt, 0, 0, 0, 0, 2 * nf, 0, (left + right) * lr, (top + bottom) * bt, (far + near) * nf, 1);
     }
-    lookAt(eye, center, up) {
+    lookAt(eye, target, up) {
         const ex = eye.x, ey = eye.y, ez = eye.z;
-        let dx = ex - center.x, dy = ey - center.y, dz = ez - center.z;
+        let dx = ex - target.x, dy = ey - target.y, dz = ez - target.z;
         if (Math.abs(dx) == 0 && Math.abs(dy) == 0 && Math.abs(dz) == 0) {
             return this.reset();
         }
@@ -932,7 +940,7 @@ export class Mat4 {
         return new Vec3(this.m, this.n, this.o);
     }
     /// The rotation component of this Mat4.
-    getRotation() {
+    getMat3() {
         return new Mat3(this.a, this.b, this.c, this.e, this.f, this.g, this.i, this.j, this.k);
     }
     /// The scaling factors of this Mat4.

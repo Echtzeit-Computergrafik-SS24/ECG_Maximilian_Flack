@@ -14,6 +14,16 @@ export var AttributeDataType;
     AttributeDataType[AttributeDataType["INT_2_10_10_10_REV"] = 36255] = "INT_2_10_10_10_REV";
     AttributeDataType[AttributeDataType["UNSIGNED_INT_2_10_10_10_REV"] = 33640] = "UNSIGNED_INT_2_10_10_10_REV";
 })(AttributeDataType || (AttributeDataType = {}));
+/// All WebGL integer Attribute data types.
+/// https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext/vertexAttribIPointer#type
+export const INTEGER_TYPES = [
+    AttributeDataType.BYTE,
+    AttributeDataType.UNSIGNED_BYTE,
+    AttributeDataType.SHORT,
+    AttributeDataType.UNSIGNED_SHORT,
+    AttributeDataType.INT,
+    AttributeDataType.UNSIGNED_INT,
+];
 // Index Buffer ============================================================= //
 /// Data types for WebGL2 indices.
 /// https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/drawElements#type
@@ -69,7 +79,7 @@ export var TextureSrcDataType;
     TextureSrcDataType[TextureSrcDataType["UNSIGNED_INT_10F_11F_11F_REV"] = 35899] = "UNSIGNED_INT_10F_11F_11F_REV";
     TextureSrcDataType[TextureSrcDataType["UNSIGNED_INT_24_8"] = 34042] = "UNSIGNED_INT_24_8";
     TextureSrcDataType[TextureSrcDataType["HALF_FLOAT"] = 5131] = "HALF_FLOAT";
-    TextureSrcDataType[TextureSrcDataType["FLOAT"] = 20] = "FLOAT";
+    TextureSrcDataType[TextureSrcDataType["FLOAT"] = 5126] = "FLOAT";
 })(TextureSrcDataType || (TextureSrcDataType = {}));
 /// Valid values for the internalFormat parameter of texStorage2D and texStorage3D.
 /// See https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext/texStorage2D#internalformat

@@ -47,14 +47,14 @@ export class Vec3
         return new Vec3(0, 0, 1);
     }
 
-    /// A random Vec3 with unit length.
+    /// A random Vec3 with unit magnitude.
     public static randomDir(): Vec3
     {
         const x = Math.random() * 2 - 1;
         const y = Math.random() * 2 - 1;
         const z = Math.random() * 2 - 1;
-        const length = Math.hypot(x, y, z);
-        return new Vec3(x / length, y / length, z / length);
+        const mag = Math.hypot(x, y, z);
+        return new Vec3(x / mag, y / mag, z / mag);
     }
 
     /// A Vec3 with x, y and z initialized from the given array at the given offset.
@@ -108,13 +108,19 @@ export class Vec3
         return new Vec3(a.x / b.x, a.y / b.y, a.z / b.z);
     }
 
+    /// A scaled copy of the given Vec3.
+    public static scaled(v: Vec3, scalar: number): Vec3
+    {
+        return new Vec3(v.x * scalar, v.y * scalar, v.z * scalar);
+    }
+
     /// Normal of a.
     public static normalOf(a: Vec3): Vec3
     {
-        const lengthSq = a.x * a.x + a.y * a.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            return new Vec3(a.x * invLength, a.y * invLength, a.z * invLength);
+        const magSq = a.x * a.x + a.y * a.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            return new Vec3(a.x * invMag, a.y * invMag, a.z * invMag);
         } else {
             return new Vec3(0, 0, 0);
         }
@@ -151,12 +157,14 @@ export class Vec3
     }
 
     /// Get the value of the given component.
+    [index: number]: number;
     get 0(): number { return this.x; }
     set 0(value: number) { this.x = value; }
     get 1(): number { return this.y; }
     set 1(value: number) { this.y = value; }
     get 2(): number { return this.z; }
     set 2(value: number) { this.z = value; }
+    get length(): number { return 3; }
 
     /// Alternative names for the components
     get width(): number { return this.x; }
@@ -247,6 +255,12 @@ export class Vec3
             Math.abs(this.x - other.x) <= epsilon &&
             Math.abs(this.y - other.y) <= epsilon &&
             Math.abs(this.z - other.z) <= epsilon);
+    }
+
+    /// Tests if any component is non-zero.
+    public any(): boolean
+    {
+        return this.x != 0 || this.y != 0 || this.z != 0;
     }
 
     /// Set this Vec3's x, y and z.
@@ -538,14 +552,14 @@ export class Vec3
         return this;
     }
 
-    /// Squared length of this.
-    public lengthSq(): number
+    /// Squared magnitude of this.
+    public magSq(): number
     {
         return this.x * this.x + this.y * this.y + this.z * this.z;
     }
 
-    /// Length of this.
-    public length(): number
+    /// Magnitude (length) of this.
+    public magnitude(): number
     {
         return Math.hypot(this.x, this.y, this.z);
     }
@@ -559,12 +573,12 @@ export class Vec3
     /// Normalize this.
     public normalize(): Vec3
     {
-        const lengthSq = this.x * this.x + this.y * this.y + this.z * this.z;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x *= invLength;
-            this.y *= invLength;
-            this.z *= invLength;
+        const magSq = this.x * this.x + this.y * this.y + this.z * this.z;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x *= invMag;
+            this.y *= invMag;
+            this.z *= invMag;
         }
         return this;
     }
@@ -572,12 +586,12 @@ export class Vec3
     /// Set this to the normalized value of other.
     public normalOf(other: Vec3): Vec3
     {
-        const lengthSq = other.x * other.x + other.y * other.y + other.z * other.z;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x = other.x * invLength;
-            this.y = other.y * invLength;
-            this.z = other.z * invLength;
+        const magSq = other.x * other.x + other.y * other.y + other.z * other.z;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x = other.x * invMag;
+            this.y = other.y * invMag;
+            this.z = other.z * invMag;
         } else {
             this.x = 0;
             this.y = 0;
@@ -661,13 +675,13 @@ export class Vec3
         return this;
     }
 
-    /// Clamp the length of this between min and max.
-    public clampLength(min: number, max: number): Vec3
+    /// Clamp the magnitude of this between min and max.
+    public clampMagnitude(min: number, max: number): Vec3
     {
-        const lengthSq = this.x * this.x + this.y * this.y + this.z * this.z;
-        if (lengthSq > 0) {
-            const length = Math.sqrt(lengthSq);
-            const factor = Math.max(min, Math.min(max, length)) / length;
+        const magSq = this.x * this.x + this.y * this.y + this.z * this.z;
+        if (magSq > 0) {
+            const mag = Math.sqrt(magSq);
+            const factor = Math.max(min, Math.min(max, mag)) / mag;
             this.x *= factor;
             this.y *= factor;
             this.z *= factor;
@@ -724,13 +738,13 @@ export class Vec3
     public projectOnVector(other: Vec3): Vec3
     {
         const bx = other.x, by = other.y, bz = other.z;
-        const lengthSq = bx * bx + by * by + bz * bz;
-        if (lengthSq == 0) {
+        const magSq = bx * bx + by * by + bz * bz;
+        if (magSq == 0) {
             this.x = 0;
             this.y = 0;
             this.z = 0;
         } else {
-            const factor = (this.x * bx + this.y * by + this.z * bz) / lengthSq;
+            const factor = (this.x * bx + this.y * by + this.z * bz) / magSq;
             this.x = bx * factor;
             this.y = by * factor;
             this.z = bz * factor;
@@ -780,6 +794,27 @@ export class Vec3
         this.x = bx * factor + ax * cosine + (-bz * ay + by * az) * sine;
         this.y = by * factor + ay * cosine + (bz * ax - bx * az) * sine;
         this.z = bz * factor + az * cosine + (-by * ax + bx * ay) * sine;
+        return this;
+    }
+
+    /// Translate this Vec3 along the positive x-axis by the given distance.
+    public translateX(distance: number): Vec3
+    {
+        this.x += distance;
+        return this;
+    }
+
+    /// Translate this Vec3 along the positive y-axis by the given distance.
+    public translateY(distance: number): Vec3
+    {
+        this.y += distance;
+        return this;
+    }
+
+    /// Translate this Vec3 along the positive z-axis by the given distance.
+    public translateZ(distance: number): Vec3
+    {
+        this.z += distance;
         return this;
     }
 

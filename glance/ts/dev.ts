@@ -5,7 +5,6 @@
 
 /// The verbose code contains more and detailled log messages.
 const VERBOSE: boolean = true;
-console.log(`Using glance in ${VERBOSE ? "verbose" : "silent"} mode.`);
 
 
 /// Logs a message to the console if VERBOSE is true.

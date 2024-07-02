@@ -28,13 +28,13 @@ export class Vec3 {
     static zAxis() {
         return new Vec3(0, 0, 1);
     }
-    /// A random Vec3 with unit length.
+    /// A random Vec3 with unit magnitude.
     static randomDir() {
         const x = Math.random() * 2 - 1;
         const y = Math.random() * 2 - 1;
         const z = Math.random() * 2 - 1;
-        const length = Math.hypot(x, y, z);
-        return new Vec3(x / length, y / length, z / length);
+        const mag = Math.hypot(x, y, z);
+        return new Vec3(x / mag, y / mag, z / mag);
     }
     /// A Vec3 with x, y and z initialized from the given array at the given offset.
     static fromArray(array, offset = 0) {
@@ -65,12 +65,16 @@ export class Vec3 {
     static quotientOf(a, b) {
         return new Vec3(a.x / b.x, a.y / b.y, a.z / b.z);
     }
+    /// A scaled copy of the given Vec3.
+    static scaled(v, scalar) {
+        return new Vec3(v.x * scalar, v.y * scalar, v.z * scalar);
+    }
     /// Normal of a.
     static normalOf(a) {
-        const lengthSq = a.x * a.x + a.y * a.y;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            return new Vec3(a.x * invLength, a.y * invLength, a.z * invLength);
+        const magSq = a.x * a.x + a.y * a.y;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            return new Vec3(a.x * invMag, a.y * invMag, a.z * invMag);
         }
         else {
             return new Vec3(0, 0, 0);
@@ -91,13 +95,13 @@ export class Vec3 {
         this.y = y;
         this.z = z;
     }
-    /// Get the value of the given component.
     get 0() { return this.x; }
     set 0(value) { this.x = value; }
     get 1() { return this.y; }
     set 1(value) { this.y = value; }
     get 2() { return this.z; }
     set 2(value) { this.z = value; }
+    get length() { return 3; }
     /// Alternative names for the components
     get width() { return this.x; }
     set width(value) { this.x = value; }
@@ -176,6 +180,10 @@ export class Vec3 {
         return (Math.abs(this.x - other.x) <= epsilon &&
             Math.abs(this.y - other.y) <= epsilon &&
             Math.abs(this.z - other.z) <= epsilon);
+    }
+    /// Tests if any component is non-zero.
+    any() {
+        return this.x != 0 || this.y != 0 || this.z != 0;
     }
     /// Set this Vec3's x, y and z.
     /// If only one argument is given, all components are set to that value.
@@ -406,12 +414,12 @@ export class Vec3 {
         this.z = ax * by - ay * bx;
         return this;
     }
-    /// Squared length of this.
-    lengthSq() {
+    /// Squared magnitude of this.
+    magSq() {
         return this.x * this.x + this.y * this.y + this.z * this.z;
     }
-    /// Length of this.
-    length() {
+    /// Magnitude (length) of this.
+    magnitude() {
         return Math.hypot(this.x, this.y, this.z);
     }
     /// Manhattan length of this.
@@ -420,23 +428,23 @@ export class Vec3 {
     }
     /// Normalize this.
     normalize() {
-        const lengthSq = this.x * this.x + this.y * this.y + this.z * this.z;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x *= invLength;
-            this.y *= invLength;
-            this.z *= invLength;
+        const magSq = this.x * this.x + this.y * this.y + this.z * this.z;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x *= invMag;
+            this.y *= invMag;
+            this.z *= invMag;
         }
         return this;
     }
     /// Set this to the normalized value of other.
     normalOf(other) {
-        const lengthSq = other.x * other.x + other.y * other.y + other.z * other.z;
-        if (lengthSq > 0) {
-            const invLength = 1 / Math.sqrt(lengthSq);
-            this.x = other.x * invLength;
-            this.y = other.y * invLength;
-            this.z = other.z * invLength;
+        const magSq = other.x * other.x + other.y * other.y + other.z * other.z;
+        if (magSq > 0) {
+            const invMag = 1 / Math.sqrt(magSq);
+            this.x = other.x * invMag;
+            this.y = other.y * invMag;
+            this.z = other.z * invMag;
         }
         else {
             this.x = 0;
@@ -502,12 +510,12 @@ export class Vec3 {
         this.z = Math.max(min, Math.min(max, this.z));
         return this;
     }
-    /// Clamp the length of this between min and max.
-    clampLength(min, max) {
-        const lengthSq = this.x * this.x + this.y * this.y + this.z * this.z;
-        if (lengthSq > 0) {
-            const length = Math.sqrt(lengthSq);
-            const factor = Math.max(min, Math.min(max, length)) / length;
+    /// Clamp the magnitude of this between min and max.
+    clampMagnitude(min, max) {
+        const magSq = this.x * this.x + this.y * this.y + this.z * this.z;
+        if (magSq > 0) {
+            const mag = Math.sqrt(magSq);
+            const factor = Math.max(min, Math.min(max, mag)) / mag;
             this.x *= factor;
             this.y *= factor;
             this.z *= factor;
@@ -552,14 +560,14 @@ export class Vec3 {
     /// Project this Vec3 onto the given Vec3.
     projectOnVector(other) {
         const bx = other.x, by = other.y, bz = other.z;
-        const lengthSq = bx * bx + by * by + bz * bz;
-        if (lengthSq == 0) {
+        const magSq = bx * bx + by * by + bz * bz;
+        if (magSq == 0) {
             this.x = 0;
             this.y = 0;
             this.z = 0;
         }
         else {
-            const factor = (this.x * bx + this.y * by + this.z * bz) / lengthSq;
+            const factor = (this.x * bx + this.y * by + this.z * bz) / magSq;
             this.x = bx * factor;
             this.y = by * factor;
             this.z = bz * factor;
@@ -601,6 +609,21 @@ export class Vec3 {
         this.x = bx * factor + ax * cosine + (-bz * ay + by * az) * sine;
         this.y = by * factor + ay * cosine + (bz * ax - bx * az) * sine;
         this.z = bz * factor + az * cosine + (-by * ax + bx * ay) * sine;
+        return this;
+    }
+    /// Translate this Vec3 along the positive x-axis by the given distance.
+    translateX(distance) {
+        this.x += distance;
+        return this;
+    }
+    /// Translate this Vec3 along the positive y-axis by the given distance.
+    translateY(distance) {
+        this.y += distance;
+        return this;
+    }
+    /// Translate this Vec3 along the positive z-axis by the given distance.
+    translateZ(distance) {
+        this.z += distance;
         return this;
     }
     /// Rotate this Vec3 around the positive x-axis by the given angle in radians.

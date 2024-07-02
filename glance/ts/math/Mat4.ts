@@ -384,6 +384,7 @@ export class Mat4
     }
 
     /// Get the value of the given component.
+    [index: number]: number;
     get 0(): number { return this.a; }
     get 1(): number { return this.b; }
     get 2(): number { return this.c; }
@@ -400,6 +401,7 @@ export class Mat4
     get 13(): number { return this.n; }
     get 14(): number { return this.o; }
     get 15(): number { return this.p; }
+    get length(): number { return 16; }
 
     /// Resets this Mat4 to the identity matrix.
     public reset(): Mat4
@@ -867,6 +869,16 @@ export class Mat4
         return this;
     }
 
+    /// 3D Translation of this Mat4 by the given distances along the x, y, and z axes.
+    public translate3(x: number, y: number, z: number): Mat4
+    {
+        this.m += this.a * x + this.e * y + this.i * z;
+        this.n += this.b * x + this.f * y + this.j * z;
+        this.o += this.c * x + this.g * y + this.k * z;
+        this.p += this.d * x + this.h * y + this.l * z;
+        return this;
+    }
+
     /// 3D Translation of this Mat4 by the given distance along the x-axis.
     public translateX(delta: number): Mat4
     {
@@ -1027,10 +1039,10 @@ export class Mat4
         );
     }
 
-    public lookAt(eye: Vec3, center: Vec3, up: Vec3): Mat4
+    public lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4
     {
         const ex = eye.x, ey = eye.y, ez = eye.z;
-        let dx = ex - center.x, dy = ey - center.y, dz = ez - center.z;
+        let dx = ex - target.x, dy = ey - target.y, dz = ez - target.z;
         if (Math.abs(dx) == 0 && Math.abs(dy) == 0 && Math.abs(dz) == 0) {
             return this.reset();
         }
@@ -1089,7 +1101,7 @@ export class Mat4
     }
 
     /// The rotation component of this Mat4.
-    public getRotation(): Mat3
+    public getMat3(): Mat3
     {
         return new Mat3(
             this.a, this.b, this.c,

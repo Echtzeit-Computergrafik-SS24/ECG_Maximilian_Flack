@@ -30,13 +30,13 @@ export class Vec4 {
     static zAxis() {
         return new Vec4(0, 0, 1);
     }
-    /// A random Vec4 with unit length and w set to 0.
+    /// A random Vec4 with unit magnitude and w set to 0.
     static randomDir() {
         const x = Math.random() * 2 - 1;
         const y = Math.random() * 2 - 1;
         const z = Math.random() * 2 - 1;
-        const length = Math.hypot(x, y, z);
-        return new Vec4(x / length, y / length, z / length, 0);
+        const mag = Math.hypot(x, y, z);
+        return new Vec4(x / mag, y / mag, z / mag, 0);
     }
     /// A Vec4 with x, y and z initialized from the given array at the given offset.
     static fromArray(array, offset = 0) {
@@ -74,7 +74,6 @@ export class Vec4 {
         this.z = z;
         this.w = w;
     }
-    /// Get the value of the given component.
     get 0() { return this.x; }
     set 0(value) { this.x = value; }
     get 1() { return this.y; }
@@ -83,6 +82,7 @@ export class Vec4 {
     set 2(value) { this.z = value; }
     get 3() { return this.w; }
     set 3(value) { this.w = value; }
+    get length() { return 4; }
     /// Get the xyz part of this Vec4 as a Vec3.
     get xyz() {
         return new Vec3(this.x, this.y, this.z);
@@ -154,6 +154,10 @@ export class Vec4 {
             Math.abs(this.y - other.y) <= epsilon &&
             Math.abs(this.z - other.z) <= epsilon &&
             Math.abs(this.w - other.w) <= epsilon);
+    }
+    /// Tests if any component is non-zero.
+    any() {
+        return this.x != 0 || this.y != 0 || this.z != 0 || this.w != 0;
     }
     /// Set this Vec4's x, y, z and w.
     /// If only one argument is given, all components are set to that value.
@@ -342,12 +346,12 @@ export class Vec4 {
         this.w = a.w + (b.w - a.w) * t;
         return this;
     }
-    /// Squared length of this.
-    lengthSq() {
+    /// Squared magnitude of this.
+    magSq() {
         return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w;
     }
-    /// Length of this.
-    length() {
+    /// Magnitude (length) of this.
+    magnitude() {
         return Math.hypot(this.x, this.y, this.z, this.w);
     }
     /// Manhattan length of this.

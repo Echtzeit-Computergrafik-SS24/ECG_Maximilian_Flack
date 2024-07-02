@@ -1,5 +1,5 @@
 export { createAttributeBuffer, createDrawCall, createFragmentShader, createFramebuffer, createIndexBuffer, createRenderbuffer, createShaderProgram, createTexture, createVAO, createVertexShader, deleteShader, getContext, performDrawCall, updateFramebufferLayer, updateTexture, };
-import { AttachmentType, AttributeDataType, BlendFunc, CullFace, DepthTest, DrawMode, ShaderStage, TextureCompareFunc, TextureDataTarget, TextureFilter, TextureInternalFormat, TextureSrcDataType, TextureTarget, TextureWrap, } from "./types.js";
+import { AttachmentType, AttributeDataType, BlendFunc, CullFace, DepthTest, DrawMode, INTEGER_TYPES, ShaderStage, TextureCompareFunc, TextureDataTarget, TextureFilter, TextureInternalFormat, TextureSrcDataType, TextureTarget, TextureWrap, } from "./types.js";
 import { areEqual, assert, isPrimitive, logInfo, logWarning, shallowCopy, throwError, } from "./dev.js";
 import { isPowerOf2, } from './math/index.js';
 import { float32ToFloat16, encodeU2101010REV, encodeI2101010REV, } from './utils.js';
@@ -261,7 +261,7 @@ function createAttributeBuffer(gl, name, attributes, usage) {
     // Bind the VBO and store the data.
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     gl.bufferData(gl.ARRAY_BUFFER, dataArray, usage ?? gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
     // Create the Attribute Buffer Object.
     logInfo(() => `Created Attribute Buffer "${name}" with ${descriptions.size} attributes for ${vertexCount} vertices and a size of ${dataArray.byteLength} bytes.`);
     return {
@@ -391,7 +391,12 @@ function createVAO(gl, name, ibo, attributes) {
         gl.bindBuffer(gl.ARRAY_BUFFER, attributeBuffer.glObject);
         for (let locationOffset = 0; locationOffset < definition.width; ++locationOffset) {
             gl.enableVertexAttribArray(location + locationOffset);
-            gl.vertexAttribPointer(location + locationOffset, definition.height, definition.type, definition.normalized ?? false, bufferStride, offset + (locationOffset * (attributeSize / definition.width)));
+            if (INTEGER_TYPES.includes(definition.type)) {
+                gl.vertexAttribIPointer(location + locationOffset, definition.height, definition.type, bufferStride, offset + (locationOffset * (attributeSize / definition.width)));
+            }
+            else {
+                gl.vertexAttribPointer(location + locationOffset, definition.height, definition.type, definition.normalized ?? false, bufferStride, offset + (locationOffset * (attributeSize / definition.width)));
+            }
             gl.vertexAttribDivisor(location + locationOffset, definition.divisor ?? 0);
         }
         logInfo(() => `Attribute "${attributeName}" of VAO "${name}" bound to location: ${location}`);
@@ -699,19 +704,19 @@ function createTexture(gl, name, width, height, target = TextureTarget.TEXTURE_2
     options.wipTextureUnit = getWIPTextureUnit(gl, options.wipTextureUnit);
     // Determine the number of levels to create.
     if (!isPowerOf2(width)) {
-        if (options.levels !== undefined) {
+        if (options.levels !== undefined && options.levels !== 1) {
             logWarning(() => `Ignoring given number of levels for ${kind} texture "${name}" because its width is not a power of two.`);
         }
         options.levels = 1;
     }
     else if (!isPowerOf2(height)) {
-        if (options.levels !== undefined) {
+        if (options.levels !== undefined && options.levels !== 1) {
             logWarning(() => `Ignoring given number of levels for ${kind} texture "${name}" because its height is not a power of two.`);
         }
         options.levels = 1;
     }
     else if (depth !== null && !isPowerOf2(depth)) {
-        if (options.levels !== undefined) {
+        if (options.levels !== undefined && options.levels !== 1) {
             logWarning(() => `Ignoring given number of levels for ${kind} texture "${name}" because its depth is not a power of two.`);
         }
         // TODO: I thought WebGL2 can handle non-power-of-two MIP maps?
@@ -1350,8 +1355,7 @@ const uniformUpdateError = (uniform, size, type) => `Value of uniform must be an
 /// Helper function to call the corret gl.uniform* function based on the uniform type.
 /// @param gl The WebGL context.
 /// @param uniform The uniform info with the value to set.
-function setUniform(gl, uniform) {
-    // Assign non-sampler uniforms.
+function uploadUniform(gl, uniform) {
     switch (uniform.type) {
         case 'float':
             assert(() => [isNumber(uniform.value), `Value of uniform must be a number!`]);
@@ -1698,18 +1702,20 @@ function createShaderProgram(gl, name, vertexShader, fragmentShader, uniforms = 
             type: foundUniform.type,
             location,
             size: uniformSize,
+            lastValue: initialValue,
             value: initialValue,
         };
         shaderUniforms.set(uniformName, shaderUniform);
         // Upload the value.
         if (manualInitialValue !== undefined || uniformHasNonZeroDefault(foundUniform.type)) {
             try {
-                setUniform(gl, shaderUniform);
+                uploadUniform(gl, shaderUniform);
+                shaderUniform.value = null; // clear the value after upload
             }
             catch (error) {
                 throwError(() => `Failed to set initial value of uniform "${uniformName}" of shader "${name}": ${error}`);
             }
-            logInfo(() => `Uniform "${uniformName}" of shader "${name}" initialized with: ${shaderUniform.value}.`);
+            logInfo(() => `Uniform "${uniformName}" of shader "${name}" initialized with: ${shaderUniform.lastValue}.`);
         }
     }
     gl.useProgram(null);
@@ -1916,6 +1922,7 @@ function createDrawCall(gl, program, vao, options = {}) {
     //  We can get the texture unit from the uniform value on the shader, but we need to know the uniform name
     //  to do that. This would avoid the need to specify the texture unit manually, which will have to match the value
     //  of the uniform value anyway. This way, we can also check for errors more easily.
+    // TODO: why can't I use a texture2D and a cubemap texture in the same slot?
     // Validate the arguments.
     const uniforms = options.uniforms ?? {};
     const textures = options.textures ?? [];
@@ -2005,7 +2012,7 @@ function createDrawCall(gl, program, vao, options = {}) {
         enabled: options.enabled,
     };
 }
-function performDrawCall(gl, drawCall, time, delta) {
+function performDrawCall(gl, drawCall, time) {
     // Return early if the draw call is disabled.
     if (drawCall.enabled !== undefined && !drawCall.enabled(time)) {
         return;
@@ -2024,11 +2031,19 @@ function performDrawCall(gl, drawCall, time, delta) {
     }
     if (drawCall.blendFunc[0] !== BlendFunc.ONE || drawCall.blendFunc[1] !== BlendFunc.ZERO) {
         gl.enable(gl.BLEND);
-        gl.blendFunc(drawCall.blendFunc[0], drawCall.blendFunc[1]);
+        if (drawCall.blendFunc.length === 4) {
+            gl.blendFuncSeparate(drawCall.blendFunc[0], drawCall.blendFunc[1], drawCall.blendFunc[2], drawCall.blendFunc[3]);
+        }
+        else if (drawCall.blendFunc.length === 2) {
+            gl.blendFunc(drawCall.blendFunc[0], drawCall.blendFunc[1]);
+        }
+        else {
+            throwError(() => `Invalid blend function array length: ${drawCall.blendFunc.length}.`);
+        }
     }
     gl.depthMask(drawCall.updateDepthBuffer);
     try {
-        // Update the uniforms.
+        // Call the uniform update callbacks.
         for (const [uniformName, updateCallback] of drawCall.uniforms) {
             const uniform = drawCall.program.uniforms.get(uniformName);
             if (uniform === undefined) {
@@ -2036,26 +2051,39 @@ function performDrawCall(gl, drawCall, time, delta) {
                 // TODO: a logWarning(once) would be nice
                 continue;
             }
-            const newValue = updateCallback({ time });
-            if (newValue === undefined) {
-                throwError(() => `The Uniform update callback for "${uniformName}" did not return a value.`);
+            // Only call the callbacks for every uniform that has not been defined manually.
+            if (uniform.value === null) {
+                uniform.value = updateCallback({ time });
+                if (uniform.value === undefined || uniform.value === null) {
+                    uniform.value = null;
+                    throwError(() => `The Uniform update callback for "${uniformName}" did not return a value.`);
+                }
             }
-            if (areEqual(newValue, uniform.value)) {
-                continue; // no need to update
+        }
+        // Update the uniforms.
+        for (const [uniformName, uniform] of drawCall.program.uniforms) {
+            // Skip uniforms that have not been changed.
+            if (uniform.value === null) {
+                continue;
             }
-            // Store a shallow copy of the new value.
-            if (isPrimitive(newValue)) {
-                uniform.value = newValue;
+            if (!areEqual(uniform.value, uniform.lastValue)) {
+                // Upload the new value to the GPU.
+                try {
+                    uploadUniform(gl, uniform);
+                }
+                catch (error) {
+                    throwError(() => `Failed to update uniform "${uniformName}" of shader "${drawCall.program.name}": ${error}`);
+                }
+                // Store a shallow copy of the new value.
+                if (isPrimitive(uniform.value)) {
+                    uniform.lastValue = uniform.value;
+                }
+                else {
+                    shallowCopy(uniform.lastValue, uniform.value);
+                }
             }
-            else {
-                shallowCopy(uniform.value, newValue);
-            }
-            try {
-                setUniform(gl, uniform);
-            }
-            catch (error) {
-                throwError(() => `Failed to update uniform "${uniformName}" of shader "${drawCall.program.name}": ${error}`);
-            }
+            // Reset the new value to null.
+            uniform.value = null;
         }
         // Bind the textures
         for (const [id, unit] of drawCall.textures) {

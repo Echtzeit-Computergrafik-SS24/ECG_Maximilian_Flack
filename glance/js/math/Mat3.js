@@ -91,7 +91,6 @@ export class Mat3 {
         this.h = h;
         this.i = i;
     }
-    /// Get the value of the given component.
     get 0() { return this.a; }
     get 1() { return this.b; }
     get 2() { return this.c; }
@@ -101,6 +100,7 @@ export class Mat3 {
     get 6() { return this.g; }
     get 7() { return this.h; }
     get 8() { return this.i; }
+    get length() { return 9; }
     /// Resets this Mat3 to the identity matrix.
     reset() {
         this.a = 1;

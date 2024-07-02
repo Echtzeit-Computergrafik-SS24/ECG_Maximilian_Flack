@@ -99,22 +99,22 @@ export class Quat
         const r = from.dot(to) + 1;
         if (r < EPSILON) {
             if (Math.abs(from.x) > Math.abs(from.z)) {
-                const length = Math.hypot(from.x, from.y);
-                return new Quat(-from.y / length, from.x / length, 0, 0);
+                const mag = Math.hypot(from.x, from.y);
+                return new Quat(-from.y / mag, from.x / mag, 0, 0);
             } else {
-                const length = Math.hypot(from.y, from.z);
-                return new Quat(0, -from.z / length, from.y / length, 0);
+                const mag = Math.hypot(from.y, from.z);
+                return new Quat(0, -from.z / mag, from.y / mag, 0);
             }
         } else {
             const x = from.y * to.z - from.z * to.y;
             const y = from.z * to.x - from.x * to.z;
             const z = from.x * to.y - from.y * to.x;
-            const length = Math.hypot(x, y, z, r);
+            const mag = Math.hypot(x, y, z, r);
             return new Quat(
-                x / length,
-                y / length,
-                z / length,
-                r / length,
+                x / mag,
+                y / mag,
+                z / mag,
+                r / mag,
             );
         }
     }
@@ -169,10 +169,12 @@ export class Quat
     }
 
     /// Get the value of the given component.
+    [index: number]: number;
     get 0(): number { return this.x; }
     get 1(): number { return this.y; }
     get 2(): number { return this.x; }
     get 3(): number { return this.w; }
+    get length(): number { return 4; }
 
     /// Update this Quat from the given array at the given offset.
     public fromArray(array: Array<number>, offset: number = 0): Quat
@@ -291,14 +293,14 @@ export class Quat
         return this;
     }
 
-    /// The squared length of this Quat.
-    public lengthSq(): number
+    /// The squared magnitude of this Quat.
+    public magSq(): number
     {
         return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w;
     }
 
-    /// The length of this Quat.
-    public length(): number
+    /// The magnitude (length) of this Quat.
+    public magnitude(): number
     {
         return Math.hypot(this.x, this.y, this.z, this.w);
     }
@@ -312,18 +314,18 @@ export class Quat
     /// The normalized version of this Quat.
     public normalize(): Quat
     {
-        const length = Math.hypot(this.x, this.y, this.z, this.w);
-        if (length === 0) {
+        const mag = Math.hypot(this.x, this.y, this.z, this.w);
+        if (mag === 0) {
             this.x = 0;
             this.y = 0;
             this.z = 0;
             this.w = 1;
         }
         else {
-            this.x /= length;
-            this.y /= length;
-            this.z /= length;
-            this.w /= length;
+            this.x /= mag;
+            this.y /= mag;
+            this.z /= mag;
+            this.w /= mag;
         }
         return this;
     }
@@ -331,18 +333,18 @@ export class Quat
     /// Set this Quat to a normalized version of another.
     public normalizeOf(other: Quat): Quat
     {
-        const length = Math.hypot(other.x, other.y, other.z, other.w);
-        if (length === 0) {
+        const mag = Math.hypot(other.x, other.y, other.z, other.w);
+        if (mag === 0) {
             this.x = 0;
             this.y = 0;
             this.z = 0;
             this.w = 1;
         }
         else {
-            this.x = other.x / length;
-            this.y = other.y / length;
-            this.z = other.z / length;
-            this.w = other.w / length;
+            this.x = other.x / mag;
+            this.y = other.y / mag;
+            this.z = other.z / mag;
+            this.w = other.w / mag;
         }
         return this;
     }
