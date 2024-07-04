@@ -13,6 +13,7 @@ Die Regeln:<br/>
 - Es steht nur eine begrenzte Anzahl an Treibstoff zur Verfügung. Sobald dieser leer ist, lassen sich keine weiteren Gleise platzieren
 - Um weiteren Treibstoff zu erlangen, müssen die Tanktürme durchfahren werden
 - Die Bäume sind Hindernisse und können nicht durchfahren werden
+- Bereits platzierte Gleise lassen sich nicht entfernen und es können keine zwei Gleise auf das gleiche Feld platziert werden
 
 Sind alle Gleise platziert, wird die Zugfahrt mit Enter gestartet. Während der Fahrt lässt sich die Kamera mithilfe der Maus um den Zug drehen. Durch Drücken von Backspace setzt sich alles auf Anfang zurück.
 
