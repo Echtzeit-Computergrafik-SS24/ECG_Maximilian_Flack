@@ -379,12 +379,12 @@ const skyboxVAO = glance.createVAO(
 
 /// Load the skybox texture.
 const skyboxTexture = await glance.loadCubemapNow(gl, "skybox-texture", [
-    "Assets/Textures/Skybox/westernRight.png",
-    "Assets/Textures/Skybox/westernLeft.png",
-    "Assets/Textures/Skybox/westernTop.png",
-    "Assets/Textures/Skybox/westernBottom.png",
-    "Assets/Textures/Skybox/westernFront.png",
-    "Assets/Textures/Skybox/westernBack.png",
+    "Assets/Textures/Skybox/westernRight.jpg",
+    "Assets/Textures/Skybox/westernLeft.jpg",
+    "Assets/Textures/Skybox/westernTop.jpg",
+    "Assets/Textures/Skybox/westernBottom.jpg",
+    "Assets/Textures/Skybox/westernFront.jpg",
+    "Assets/Textures/Skybox/westernBack.jpg",
 ]);
 
 /// The draw call contains all information on how to render the skybox.
@@ -878,9 +878,9 @@ const trackShader = glance.createShader(gl, "world-shader", groundInstanceVertex
 });
 
 const groundShader = glance.createShader(gl, "ground-shader", groundVertexShader, groundFragmentShader, {
-    u_ambient: 0.4,
+    u_ambient: 0.5,
     u_diffuse: 0.9,
-    u_specular: 0.5,
+    u_specular: 0.4,
     u_shininess: 128,
     u_lightColor: [1, 1, 1],
     u_texDiffuse: 0,
@@ -969,10 +969,10 @@ const tracksIABO = glance.createAttributeBuffer(gl, "tracks-iabo", {
 
 const tracksVAO = glance.createVAO(gl, "tracks-vao", tracksIBO, glance.buildAttributeMap(trackShader, [tracksABO, tracksIABO]));
 
-const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_diff_1k.png");
-const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_ao_1k.png");
-const tracksTextureNormal = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_nor_gl_1k.png");
-const tracksTextureDepth = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Objects/gray_rocks_disp_1k.png");
+const tracksTextureDiffuse = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/rockdiff.jpg");
+const tracksTextureSpecular = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/rockao.jpg");
+const tracksTextureNormal = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/rocknorm.jpg");
+const tracksTextureDepth = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/rockdepth.jpg");
 
 const tracksDrawCall = glance.createDrawCall(gl, trackShader, tracksVAO, {
     uniforms: {
@@ -1012,7 +1012,7 @@ const treeIABO = glance.createAttributeBuffer(gl, "tree-iabo", {
 
 const treeVAO = glance.createVAO(gl, "tree-vao", treeIBO, glance.buildAttributeMap(worldObjectsShader, [treeABO, treeIABO]));
 
-const treeTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/tree.png");
+const treeTexture = glance.loadTexture(gl, 512, 512, "Assets/Textures/Objects/tree.png");
 
 const treeDrawCall = glance.createDrawCall(gl, worldObjectsShader, treeVAO, {
     uniforms: {
@@ -1049,7 +1049,7 @@ const stationIABO = glance.createAttributeBuffer(gl, "station-iabo", {
 
 const stationVAO = glance.createVAO(gl, "station-vao", stationIBO, glance.buildAttributeMap(worldObjectsShader, [stationABO, stationIABO]));
 
-const stationTexture = glance.loadTexture(gl, 512, 512, "Assets/OBJ/wood.png");
+const stationTexture = glance.loadTexture(gl, 512, 512, "Assets/Textures/Objects/wood.png");
 
 const stationDrawCall = glance.createDrawCall(gl, worldObjectsShader, stationVAO, {
     uniforms: {
@@ -1086,7 +1086,7 @@ const fuelIABO = glance.createAttributeBuffer(gl, "fuel-iabo", {
 
 const fuelVAO = glance.createVAO(gl, "fuel-vao", fuelIBO, glance.buildAttributeMap(worldObjectsShader, [fuelABO, fuelIABO]));
 
-const fuelTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/tower.png");
+const fuelTexture = glance.loadTexture(gl, 512, 512, "Assets/Textures/Objects/tower.png");
 
 const fuelDrawCall = glance.createDrawCall(gl, worldObjectsShader, fuelVAO, {
     uniforms: {
@@ -1118,7 +1118,7 @@ const trainTrackABO = glance.createAttributeBuffer(gl, "trainTrack-abo", {
     a_texCoord: { data: trainTrackGeo.texCoords, height: 2 },
 });
 
-const trainTrackTexture = glance.loadTexture(gl, 1024, 1024, "Assets/OBJ/track.png");
+const trainTrackTexture = glance.loadTexture(gl, 512, 512, "Assets/Textures/Objects/track.png");
 
 const trainTrackIABO = glance.createAttributeBuffer(gl, "trainTrack-iabo", {
     a_instancePos: { data: tilesSelectedPlacing, height: 1, divisor: 1 },
@@ -1158,7 +1158,7 @@ const flagABO = glance.createAttributeBuffer(gl, "flag-abo", {
 
 const flagVAO = glance.createVAO(gl, "flag-vao", flagIBO, glance.buildAttributeMap(trainShader, [flagABO]));
 
-const flagTexture = glance.loadTexture(gl, 512, 512, "Assets/OBJ/tree.png");
+const flagTexture = glance.loadTexture(gl, 512, 512, "Assets/Textures/Objects/tree.png");
 
 const flagDrawCall = glance.createDrawCall(gl, trainShader, flagVAO, {
     uniforms: {
@@ -1189,7 +1189,7 @@ const trainABO = glance.createAttributeBuffer(gl, "train-abo", {
 
 const trainVAO = glance.createVAO(gl, "train-vao", trainIBO, glance.buildAttributeMap(trainShader, [trainABO]));
 
-const trainTexture = glance.loadTexture(gl, 2048, 2048, "Assets/OBJ/TrainBake.png");
+const trainTexture = glance.loadTexture(gl, 2048, 2048, "Assets/Textures/Objects/train.png");
 
 const trainDrawCall = glance.createDrawCall(gl, trainShader, trainVAO, {
     uniforms: {
@@ -1225,9 +1225,9 @@ const groundABO = glance.createAttributeBuffer(gl, "ground-abo", {
 
 const groundVAO = glance.createVAO(gl, "ground-vao", groundIBO, glance.buildAttributeMap(groundShader, [groundABO]));
 
-const groundDiffTexture = glance.loadTexture(gl, 2048, 2048, "Assets/Textures/muddiff.png");
-const groundSpecTexture = glance.loadTexture(gl, 2048, 2048, "Assets/Textures/mudao.png");
-const groundNormTexture = glance.loadTexture(gl, 2048, 2048, "Assets/Textures/mudnorm.png");
+const groundDiffTexture = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/grounddiff.jpg");
+const groundSpecTexture = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/groundao.jpg");
+const groundNormTexture = glance.loadTexture(gl, 1024, 1024, "Assets/Textures/Environment/groundnorm.jpg");
 
 const groundDrawCall = glance.createDrawCall(gl, groundShader, groundVAO, {
     uniforms: {
@@ -1409,6 +1409,17 @@ const shadowDrawCalls = [
         instances: () => fuelTiles.length,
         enabled: () => fuelTiles.length > 0,
     }),
+    glance.createDrawCall(gl, shadowInstanceShader, trainTrackVAO, {
+        uniforms: {
+            u_groundArr: () => groundPosArrFlat,
+            u_lightXform: () => lightXform,
+            u_type: () => 5,
+        },
+        cullFace: gl.BACK,
+        depthTest: gl.LESS,
+        instances: () => tilesSelectedPlacing.length,
+        enabled: () => tilesSelectedPlacing.length > 0,
+    })
 ];
 
 
@@ -1497,8 +1508,8 @@ const postABO = glance.createAttributeBuffer(gl, "post-abo", {
 });
 const postVAO = glance.createVAO(gl, "post-vao", postIBO, glance.buildAttributeMap(postShader, [postABO]));
 
-const winTextTexture = glance.loadTexture(gl, 800, 800, "./Assets/Style/win-stencil.png");
-const loseTextTexture = glance.loadTexture(gl, 800, 800, "./Assets/Style/lose-stencil.png");
+const winTextTexture = glance.loadTexture(gl, 800, 800, "Assets/Style/win-stencil.png");
+const loseTextTexture = glance.loadTexture(gl, 800, 800, "Assets/Style/lose-stencil.png");
 
 const postTexture = glance.createTexture(
     gl,
@@ -1592,7 +1603,7 @@ setRenderLoop((time) => {
     framebufferStack.pop(gl);
 
     // add Post Framebuffer if end is reached
-    if (gameFinished) {
+    if (gameFinished && 1==2) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, postFramebuffer);
     }
 
@@ -1672,7 +1683,7 @@ setRenderLoop((time) => {
     // update the fuelcount
     document.getElementById("fuel-counter-span").textContent = fuelCount;
 
-    if (gameFinished) {
+    if (gameFinished && 1==2) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         gl.clear(gl.COLOR_BUFFER_BIT);
