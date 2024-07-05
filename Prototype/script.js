@@ -314,7 +314,6 @@ const viewMatrix = Mat4.identity();
 
 // Variables for the light
 const lightPos = Vec3.zero();
-const lightParallaxPos = Vec3.zero();
 const lightXform = Mat4.identity();
 
 // =====================================================================
@@ -567,7 +566,7 @@ const tilesDrawCall = glance.createDrawCall(gl, tileshader, tilesVAO, {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
-        u_lightPosition: () => lightParallaxPos,
+        u_lightPosition: () => lightPos,
         u_lightXform: () => lightXform,
         u_groundArr: () => groundPosArrFlat,
 
@@ -705,7 +704,7 @@ const groundDrawCall = glance.createDrawCall(gl, groundShader, groundVAO, {
         u_viewMatrix: () => viewMatrix,
         u_projectionMatrix: () => projectionMatrix,
         u_viewPos: () => viewPos,
-        u_lightPosition: () => lightParallaxPos,
+        u_lightPosition: () => lightPos,
         u_lightXform: () => lightXform,
     },
     textures: [
@@ -878,9 +877,8 @@ setRenderLoop((time) => {
     lastTime = time;
 
     // Update the light
-    lightPos.set(0, 0, -1).rotateX(lightTilt).rotateY(time * lightRotationSpeed);
-    lightParallaxPos.set(0, 0, -80).rotateX(lightTilt).rotateY(time * lightRotationSpeed);
-    lightXform.lookAt(lightParallaxPos, origin, up);
+    lightPos.set(0, 0, -80).rotateX(lightTilt).rotateY(time * lightRotationSpeed);
+    lightXform.lookAt(lightPos, origin, up);
 
     // Render shadow map
     framebufferStack.push(gl, shadowFramebuffer);
