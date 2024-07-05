@@ -99,7 +99,7 @@ const groundInstanceVSSource = `#version 300 es
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
         f_fragPosLS = u_lightProjection * u_lightXform * worldPosition;
     }
-`
+`;
 const groundVSSource = `#version 300 es
     precision highp float;
 
@@ -140,7 +140,7 @@ const groundVSSource = `#version 300 es
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
         f_fragPosLS = u_lightProjection * u_lightXform * worldPosition;
     }
-`
+`;
 const trackFSSource = `#version 300 es
     precision mediump float;
 
@@ -247,7 +247,7 @@ const trackFSSource = `#version 300 es
         vec3 endColor = vec3(ambient + shadow * (diffuse + specular));
         FragColor = vec4(endColor, 1.0);
     }
-`
+`;
 const groundFSSource = `#version 300 es
     precision mediump float;
 
@@ -316,7 +316,7 @@ const groundFSSource = `#version 300 es
         vec3 endColor = vec3(ambient + shadow * (diffuse + specular));
         FragColor = vec4(endColor, 1.0);
     }
-`
+`;
 const worldinstanceVSSource = `#version 300 es
     precision highp float;
 
@@ -406,7 +406,7 @@ const worldinstanceVSSource = `#version 300 es
         gl_Position = u_projectionMatrix * u_viewMatrix * worldPosition;
         f_fragPosLS = u_lightProjection * u_lightXform * worldPosition;
     }
-`
+`;
 const trainVSSource = `#version 300 es
     precision highp float;
 
@@ -646,6 +646,7 @@ const postFSSource = `#version 300 es
     void main() {
         vec3 color = gaussian(u_texture);
         float factor = texture(u_textLayer, f_texCoord).g;
+        // u_color is red if game failed or green if game won
         color = factor * color * u_color;
         o_fragColor = vec4(color, 1.0);
     }
